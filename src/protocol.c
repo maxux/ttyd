@@ -140,6 +140,10 @@ tty_client_destroy(struct tty_client *client) {
     pthread_cond_signal(&client->cond);
     pthread_mutex_unlock(&client->mutex);
 
+
+    // do not kill process when client dies
+
+    #if 0
     // kill process and free resource
     lwsl_notice("sending %s (%d) to process %d\n", server->sig_name, server->sig_code, client->pid);
     if (kill(client->pid, server->sig_code) != 0) {
@@ -150,6 +154,7 @@ tty_client_destroy(struct tty_client *client) {
         ;
     lwsl_notice("process exited with code %d, pid: %d\n", status, client->pid);
     close(client->pty);
+    #endif
 
 cleanup:
     // free the buffer
@@ -162,19 +167,17 @@ cleanup:
     tty_client_remove(client);
 }
 
-void *
-thread_run_command(void *args) {
-    struct tty_client *client;
+void * mainthread_run_command(void *args) {
     int pty;
     fd_set des_set;
 
-    client = (struct tty_client *) args;
     pid_t pid = forkpty(&pty, NULL, NULL, NULL);
 
     switch (pid) {
         case -1: /* error */
             lwsl_err("forkpty, error: %d (%s)\n", errno, strerror(errno));
-            break;
+            return NULL;
+
         case 0: /* child */
             if (setenv("TERM", server->terminal_type, true) < 0) {
                 perror("setenv");
@@ -184,38 +187,55 @@ thread_run_command(void *args) {
                 perror("execvp");
                 pthread_exit((void *) 1);
             }
-            break;
+            return NULL;
+
         default: /* parent */
             lwsl_notice("started process, pid: %d\n", pid);
-            client->pid = pid;
-            client->pty = pty;
-            client->running = true;
-            if (client->size.ws_row > 0 && client->size.ws_col > 0)
-                ioctl(client->pty, TIOCSWINSZ, &client->size);
+            server->pid = pid;
+            server->pty = pty;
+            server->running = true;
+            break;
+    }
 
-            while (client->running) {
-                FD_ZERO (&des_set);
-                FD_SET (pty, &des_set);
-                struct timeval tv = { 1, 0 };
-                int ret = select(pty + 1, &des_set, NULL, NULL, &tv);
-                if (ret == 0) continue;
-                if (ret < 0) break;
+    while (server->running) {
+        FD_ZERO (&des_set);
+        FD_SET (pty, &des_set);
+        struct timeval tv = { 1, 0 };
 
-                if (FD_ISSET (pty, &des_set)) {
-                    while (client->running) {
-                        pthread_mutex_lock(&client->mutex);
-                        while (client->state == STATE_READY) {
-                            pthread_cond_wait(&client->cond, &client->mutex);
-                        }
-                        memset(client->pty_buffer, 0, sizeof(client->pty_buffer));
-                        client->pty_len = read(pty, client->pty_buffer + LWS_PRE + 1, BUF_SIZE);
-                        client->state = STATE_READY;
-                        pthread_mutex_unlock(&client->mutex);
-                        break;
-                    }
+        int ret = select(pty + 1, &des_set, NULL, NULL, &tv);
+        if (ret == 0) continue;
+        if (ret < 0) break;
+
+        if (FD_ISSET (pty, &des_set)) {
+            pthread_mutex_lock(&server->mutex);
+
+            char pty_buffer[BUF_SIZE];
+            ssize_t pty_len;
+
+            memset(pty_buffer, 0, sizeof(pty_buffer));
+            pty_len = read(pty, pty_buffer, sizeof(pty_buffer));
+
+            struct tty_client *client;
+            LIST_FOREACH(client, &server->clients, list) {
+                // printf("sending to client (%d bytes)\n", pty_len);
+                pthread_mutex_lock(&client->mutex);
+
+                memcpy(client->pty_buffer + LWS_PRE + 1, pty_buffer, pty_len);
+                client->pty_len = pty_len;
+                client->state = STATE_READY;
+
+                // printf("running %d, state: %d, request callback\n", client->running, client->state);
+                lws_callback_on_writable(client->wsi);
+                pthread_mutex_unlock(&client->mutex);
+
+                while(client->state != STATE_DONE) {
+                    // delay write
+                    lws_callback_on_writable(client->wsi);
                 }
             }
-            break;
+        }
+
+        pthread_mutex_unlock(&server->mutex);
     }
 
     pthread_exit((void *) 0);
@@ -279,16 +299,21 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
                     client->initialized = true;
                     break;
                 }
+
                 if (send_initial_message(wsi, client->initial_cmd_index) < 0) {
                     lws_close_reason(wsi, LWS_CLOSE_STATUS_UNEXPECTED_CONDITION, NULL, 0);
                     return -1;
                 }
+
                 client->initial_cmd_index++;
                 lws_callback_on_writable(wsi);
                 return 0;
             }
+
             if (client->state != STATE_READY)
                 break;
+
+            pthread_mutex_lock(&client->mutex);
 
             // read error or client exited, close connection
             if (client->pty_len <= 0) {
@@ -304,7 +329,10 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
             if (lws_write(wsi, (unsigned char *) client->pty_buffer + LWS_PRE, n, LWS_WRITE_BINARY) < n) {
                 lwsl_err("write data to WS\n");
             }
+
             client->state = STATE_DONE;
+
+            pthread_mutex_unlock(&client->mutex);
             break;
 
         case LWS_CALLBACK_RECEIVE:
@@ -368,12 +396,14 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
                             return -1;
                         }
                     }
-                    int err = pthread_create(&client->thread, NULL, thread_run_command, client);
-                    if (err != 0) {
-                        lwsl_err("pthread_create return: %d\n", err);
-                        return 1;
-                    }
+
+                    // no client thread, just flagging it as running
+                    // attaching pty to redirect input
+                    client->running = true;
+                    client->pty = server->pty;
+
                     break;
+
                 default:
                     lwsl_warn("ignored unknown message type: %c\n", command);
                     break;

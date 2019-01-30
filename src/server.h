@@ -76,6 +76,12 @@ struct tty_server {
     char socket_path[255];                    // UNIX domain socket path
     char terminal_type[30];                   // terminal type to report
     pthread_mutex_t mutex;
+
+    // single process changes
+    pthread_t thread;                         // main fork tread
+    int pid;                                  // child process id
+    int pty;                                  // pty file descriptor
+    int running;                              // process is running
 };
 
 extern int

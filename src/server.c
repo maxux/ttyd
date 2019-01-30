@@ -18,6 +18,8 @@
 #define TTYD_VERSION "unknown"
 #endif
 
+void *mainthread_run_command(void *args);
+
 volatile bool force_exit = false;
 struct lws_context *context;
 struct tty_server *server;
@@ -474,23 +476,15 @@ main(int argc, char **argv) {
         open_uri(url);
     }
 
+    // spawning main thread process
+    int err = pthread_create(&server->thread, NULL, mainthread_run_command, server);
+    if (err != 0) {
+        lwsl_err("pthread_create return: %d\n", err);
+        return 1;
+    }
+
     // libwebsockets main loop
     while (!force_exit) {
-        pthread_mutex_lock(&server->mutex);
-        if (!LIST_EMPTY(&server->clients)) {
-            struct tty_client *client;
-            LIST_FOREACH(client, &server->clients, list) {
-                if (client->running) {
-                    pthread_mutex_lock(&client->mutex);
-                    if (client->state != STATE_DONE)
-                        lws_callback_on_writable(client->wsi);
-                    else
-                        pthread_cond_signal(&client->cond);
-                    pthread_mutex_unlock(&client->mutex);
-                }
-            }
-        }
-        pthread_mutex_unlock(&server->mutex);
         lws_service(context, 10);
     }
 
