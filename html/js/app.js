@@ -181,7 +181,11 @@ var terminalContainer = document.getElementById('terminal-container'),
     reconnectTimer, term, title, wsError;
 
 var openWs = function() {
-    var ws = new WebSocket(url, ['tty']);
+    var hash = window.location.hash.substr(1);
+
+    // FIXME: sanity check about hash
+
+    var ws = new WebSocket(url + '/' + hash, ['tty']);
     var sendMessage = function (message) {
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(textEncoder.encode(message));
@@ -315,6 +319,7 @@ var openWs = function() {
         var rawData = new Uint8Array(event.data),
             cmd = String.fromCharCode(rawData[0]),
             data = rawData.slice(1).buffer;
+
         switch(cmd) {
             case '0':
                 try {
