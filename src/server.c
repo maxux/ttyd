@@ -58,13 +58,12 @@ static const struct option options[] = {
         {"check-origin", no_argument,       NULL, 'O'},
         {"max-clients",  required_argument, NULL, 'm'},
         {"once",         no_argument,       NULL, 'o'},
-        {"browser",      no_argument,       NULL, 'B'},
         {"debug",        required_argument, NULL, 'd'},
         {"version",      no_argument,       NULL, 'v'},
         {"help",         no_argument,       NULL, 'h'},
         {NULL,           0,                 0,     0}
 };
-static const char *opt_string = "p:i:c:u:g:s:r:I:6aSC:K:A:Rt:T:Om:oBd:vh";
+static const char *opt_string = "p:i:c:u:g:s:r:I:6aSC:K:A:Rt:T:Om:od:vh";
 
 void print_help() {
     fprintf(stderr, "ttyd is a tool for sharing terminal over the web\n\n"
@@ -82,11 +81,9 @@ void print_help() {
                     "    -r, --reconnect         Time to reconnect for the client in seconds (default: 10)\n"
                     "    -R, --readonly          Do not allow clients to write to the TTY\n"
                     "    -t, --client-option     Send option to client (format: key=value), repeat to add more options\n"
-                    "    -T, --terminal-type     Terminal type to report, default: xterm-256color\n"
                     "    -O, --check-origin      Do not allow websocket connection from different origin\n"
                     "    -m, --max-clients       Maximum clients to support (default: 0, no limit)\n"
                     "    -o, --once              Accept only one client and exit on disconnection\n"
-                    "    -B, --browser           Open terminal with the default system browser\n"
                     "    -I, --index             Custom index.html path\n"
                     "    -6, --ipv6              Enable IPv6 support\n"
                     "    -S, --ssl               Enable SSL\n"
@@ -245,7 +242,6 @@ main(int argc, char **argv) {
 
     int debug_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
     char iface[128] = "";
-    bool browser = false;
     bool ssl = false;
     char cert_path[1024] = "";
     char key_path[1024] = "";
@@ -277,9 +273,6 @@ main(int argc, char **argv) {
                 break;
             case 'o':
                 server->once = true;
-                break;
-            case 'B':
-                browser = true;
                 break;
             case 'p':
                 info.port = atoi(optarg);
@@ -467,19 +460,6 @@ main(int argc, char **argv) {
     context = lws_create_context(&info);
     if (context == NULL) {
         lwsl_err("libwebsockets init failed\n");
-        return 1;
-    }
-
-    if (browser) {
-        char url[30];
-        sprintf(url, "%s://localhost:%d", ssl ? "https" : "http", info.port);
-        open_uri(url);
-    }
-
-    // spawning main thread process
-    int err = pthread_create(&server->thread, NULL, mainthread_run_command, server);
-    if (err != 0) {
-        lwsl_err("pthread_create return: %d\n", err);
         return 1;
     }
 

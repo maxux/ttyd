@@ -83,24 +83,6 @@ get_sig(const char *sig_name) {
     return atoi(sig_name);
 }
 
-int
-open_uri(char *uri) {
-#ifdef __APPLE__
-    char command[256];
-    sprintf(command, "open %s > /dev/null 2>&1", uri);
-    return system(command);
-#elif defined(_WIN32) || defined(__CYGWIN__)
-    return ShellExecute(0, 0, uri, 0, 0 , SW_SHOW) > 32 ? 0 : 1;
-#else
-    // check if X server is running
-    if (system("xset -q > /dev/null 2>&1"))
-        return 1;
-    char command[256];
-    sprintf(command, "xdg-open %s > /dev/null 2>&1", uri);
-    return system(command);
-#endif
-}
-
 // https://github.com/darkk/redsocks/blob/master/base64.c
 char *
 base64_encode(const unsigned char *buffer, size_t length) {
