@@ -98,75 +98,101 @@ void print_help() {
     );
 }
 
-struct tty_server *
-tty_server_new(int argc, char **argv, int start) {
+struct tty_server *tty_server_new() {
     struct tty_server *ts;
-    size_t cmd_len = 0;
 
     ts = xmalloc(sizeof(struct tty_server));
-
     memset(ts, 0, sizeof(struct tty_server));
+
     LIST_INIT(&ts->clients);
+    LIST_INIT(&ts->processes);
+
     ts->client_count = 0;
     ts->reconnect = 10;
     ts->sig_code = SIGHUP;
+
     sprintf(ts->terminal_type, "%s", "xterm-256color");
     get_sig_name(ts->sig_code, ts->sig_name, sizeof(ts->sig_name));
-    if (start == argc)
-        return ts;
-
-    int cmd_argc = argc - start;
-    char **cmd_argv = &argv[start];
-    ts->argv = xmalloc(sizeof(char *) * (cmd_argc + 1));
-    for (int i = 0; i < cmd_argc; i++) {
-        ts->argv[i] = strdup(cmd_argv[i]);
-        cmd_len += strlen(ts->argv[i]);
-        if (i != cmd_argc - 1) {
-            cmd_len++; // for space
-        }
-    }
-    ts->argv[cmd_argc] = NULL;
-
-    ts->command = xmalloc(cmd_len + 1);
-    char *ptr = ts->command;
-    for (int i = 0; i < cmd_argc; i++) {
-        ptr = stpcpy(ptr, ts->argv[i]);
-        if (i != cmd_argc - 1) {
-            *ptr++ = ' ';
-        }
-    }
-    *ptr = '\0'; // null terminator
 
     return ts;
 }
 
-void
-tty_server_free(struct tty_server *ts) {
+struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, char **argv) {
+    struct tty_process *process;
+    size_t cmd_len = 0;
+
+    process = xmalloc(sizeof(struct tty_process));
+    memset(process, 0, sizeof(struct tty_process));
+
+    process->server = server;
+    process->argv = xmalloc(sizeof(char *) * (argc + 1));
+    for (int i = 0; i < argc; i++) {
+        process->argv[i] = strdup(argv[i]);
+        cmd_len += strlen(process->argv[i]);
+        if (i != argc - 1) {
+            cmd_len++; // for space
+        }
+    }
+    process->argv[argc] = NULL;
+
+    process->command = xmalloc(cmd_len + 1);
+    char *ptr = process->command;
+    for (int i = 0; i < argc; i++) {
+        ptr = stpcpy(ptr, process->argv[i]);
+        if (i != argc - 1) {
+            *ptr++ = ' ';
+        }
+    }
+
+    *ptr = '\0'; // null terminator
+
+    // starting the process
+    int err = pthread_create(&process->thread, NULL, mainthread_run_command, process);
+    if (err != 0) {
+        lwsl_err("pthread_create return: %d\n", err);
+        return NULL;
+    }
+
+    LIST_INSERT_HEAD(&ts->processes, process, list);
+
+    return process;
+}
+
+void tty_server_free(struct tty_server *ts) {
     if (ts == NULL)
         return;
+
     if (ts->credential != NULL)
         free(ts->credential);
+
     if (ts->index != NULL)
         free(ts->index);
-    free(ts->command);
+
+    // free(ts->command);
     free(ts->prefs_json);
     int i = 0;
+
+    /*
     do {
         free(ts->argv[i++]);
+
     } while (ts->argv[i] != NULL);
+
     free(ts->argv);
+    */
+
     if (strlen(ts->socket_path) > 0) {
         struct stat st;
         if (!stat(ts->socket_path, &st)) {
             unlink(ts->socket_path);
         }
     }
+
     pthread_mutex_destroy(&ts->mutex);
     free(ts);
 }
 
-void
-sig_handler(int sig) {
+void sig_handler(int sig) {
     if (force_exit)
         exit(EXIT_FAILURE);
 
@@ -178,53 +204,15 @@ sig_handler(int sig) {
     lwsl_notice("send ^C to force exit.\n");
 }
 
-int
-calc_command_start(int argc, char **argv) {
-    // make a copy of argc and argv
-    int argc_copy = argc;
-    char **argv_copy = xmalloc(sizeof(char *) * argc);
-    for (int i = 0; i < argc; i++) {
-        argv_copy[i] = strdup(argv[i]);
-    }
+int main(int argc, char **argv) {
+    int __argc = 1;
+    char *__argv[1] = {"/bin/bash"};
 
-    // do not print error message for invalid option
-    opterr = 0;
-    while (getopt_long(argc_copy, argv_copy, opt_string, options, NULL) != -1)
-        ;
+    server = tty_server_new();
 
-    int start = argc;
-    if (optind < argc) {
-        char *command = argv_copy[optind];
-        for (int i = 0; i < argc; i++) {
-            if (strcmp(argv[i], command) == 0) {
-                start = i;
-                break;
-            }
-        }
-    }
+    tty_server_attach_process(server, __argc, __argv);
+    tty_server_attach_process(server, __argc, __argv);
 
-    // free argv copy
-    for (int i = 0; i < argc; i++) {
-        free(argv_copy[i]);
-    }
-    free(argv_copy);
-
-    // reset for next use
-    opterr = 1;
-    optind = 0;
-
-    return start;
-}
-
-int
-main(int argc, char **argv) {
-    if (argc == 1) {
-        print_help();
-        return 0;
-    }
-
-    int start = calc_command_start(argc, argv);
-    server = tty_server_new(argc, argv, start);
     pthread_mutex_init(&server->mutex, NULL);
 
     struct lws_context_creation_info info;
@@ -251,7 +239,7 @@ main(int argc, char **argv) {
 
     // parse command line options
     int c;
-    while ((c = getopt_long(start, argv, opt_string, options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, opt_string, options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help();
@@ -360,7 +348,8 @@ main(int argc, char **argv) {
                 break;
             case 't':
                 optind--;
-                for (; optind < start && *argv[optind] != '-'; optind++) {
+                /*
+                for (; optind < argc && *argv[optind] != '-'; optind++) {
                     char *option = strdup(optarg);
                     char *key = strsep(&option, "=");
                     if (key == NULL) {
@@ -372,6 +361,7 @@ main(int argc, char **argv) {
                     struct json_object *obj = json_tokener_parse(value);
                     json_object_object_add(client_prefs, key, obj != NULL ? obj : json_object_new_string(value));
                 }
+                */
                 break;
             default:
                 print_help();
@@ -381,10 +371,12 @@ main(int argc, char **argv) {
     server->prefs_json = strdup(json_object_to_json_string(client_prefs));
     json_object_put(client_prefs);
 
+    /*
     if (server->command == NULL || strlen(server->command) == 0) {
         fprintf(stderr, "ttyd: missing start command\n");
         return -1;
     }
+    */
 
     lws_set_log_level(debug_level, NULL);
 
@@ -438,7 +430,9 @@ main(int argc, char **argv) {
     lwsl_notice("tty configuration:\n");
     if (server->credential != NULL)
         lwsl_notice("  credential: %s\n", server->credential);
-    lwsl_notice("  start command: %s\n", server->command);
+
+    // lwsl_notice("  start command: %s\n", server->command);
+
     lwsl_notice("  close signal: %s (%d)\n", server->sig_name, server->sig_code);
     lwsl_notice("  terminal type: %s\n", server->terminal_type);
     lwsl_notice("  reconnect timeout: %ds\n", server->reconnect);

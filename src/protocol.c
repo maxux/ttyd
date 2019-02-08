@@ -28,9 +28,9 @@
 
 // initial message list
 char initial_cmds[] = {
-        SET_WINDOW_TITLE,
-        SET_RECONNECT,
-        SET_PREFERENCES
+    SET_WINDOW_TITLE,
+    SET_RECONNECT,
+    SET_PREFERENCES
 };
 
 int
@@ -40,12 +40,15 @@ send_initial_message(struct lws *wsi, int index) {
     char buffer[128];
     int n = 0;
 
+    struct tty_process *process = LIST_FIRST(&server->processes);
+
     char cmd = initial_cmds[index];
     switch(cmd) {
         case SET_WINDOW_TITLE:
             gethostname(buffer, sizeof(buffer) - 1);
-            n = sprintf((char *) p, "%c%s (%s)", cmd, server->command, buffer);
+            n = sprintf((char *) p, "%c%s (%s)", cmd, process->command, buffer);
             break;
+
         case SET_RECONNECT:
             n = sprintf((char *) p, "%c%d", cmd, server->reconnect);
             break;
@@ -168,8 +171,11 @@ cleanup:
 }
 
 void * mainthread_run_command(void *args) {
-    int pty;
     fd_set des_set;
+    int pty = 0;
+
+    struct tty_process *process = (struct tty_process *) args;
+    struct tty_server *server = process->server;
 
     pid_t pid = forkpty(&pty, NULL, NULL, NULL);
 
@@ -183,21 +189,27 @@ void * mainthread_run_command(void *args) {
                 perror("setenv");
                 pthread_exit((void *) 1);
             }
-            if (execvp(server->argv[0], server->argv) < 0) {
+
+            printf("executing: %s\n", process->argv[0]);
+
+            // FIXME: if process fails, segfault later on pty
+
+            if (execvp(process->argv[0], process->argv) < 0) {
                 perror("execvp");
                 pthread_exit((void *) 1);
             }
+
             return NULL;
 
         default: /* parent */
-            lwsl_notice("started process, pid: %d\n", pid);
-            server->pid = pid;
-            server->pty = pty;
-            server->running = true;
+            lwsl_notice("started process, pid: %d, pty: %d\n", pid, pty);
+            process->pid = pid;
+            process->pty = pty;
+            process->running = true;
             break;
     }
 
-    while (server->running) {
+    while (process->running) {
         FD_ZERO (&des_set);
         FD_SET (pty, &des_set);
         struct timeval tv = { 1, 0 };
@@ -215,10 +227,20 @@ void * mainthread_run_command(void *args) {
             memset(pty_buffer, 0, sizeof(pty_buffer));
             pty_len = read(pty, pty_buffer, sizeof(pty_buffer));
 
+            /*
+            if(pty_len < 0)
+                perror("read");
+            */
+
             struct tty_client *client;
             LIST_FOREACH(client, &server->clients, list) {
-                // printf("sending to client (%d bytes)\n", pty_len);
+                // printf("trying sending to client (%d bytes)\n", pty_len);
                 pthread_mutex_lock(&client->mutex);
+
+                if(!client->running || client->pid != process->pid) {
+                    pthread_mutex_unlock(&client->mutex);
+                    continue;
+                }
 
                 memcpy(client->pty_buffer + LWS_PRE + 1, pty_buffer, pty_len);
                 client->pty_len = pty_len;
@@ -254,12 +276,47 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
                 lwsl_warn("refuse to serve WS client due to the --once option.\n");
                 return 1;
             }
+
             if (server->max_clients > 0 && server->client_count == server->max_clients) {
                 lwsl_warn("refuse to serve WS client due to the --max-clients option.\n");
                 return 1;
             }
-            if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI) <= 0 || strcmp(buf, WS_PATH) != 0) {
+
+            if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI) <= 0) {
+                lwsl_warn("refuse to serve WS client for wrong path: %s\n", buf);
+                return 1;
+            }
+
+            /*
+            if (strlen(buf) <= strlen(WS_PATH)) {
                 lwsl_warn("refuse to serve WS client for illegal ws path: %s\n", buf);
+                return 1;
+            }
+            */
+
+            // initializing client to unknown pid
+            client->pid = 0;
+
+            int pid = atoi(buf + sizeof(WS_PATH));
+            lwsl_notice("WS   request pid: %d\n", pid);
+
+            struct tty_process *process;
+
+            // searching this pid
+            LIST_FOREACH(process, &server->processes, list) {
+                printf("matching pid: %d <> %d\n", process->pid, pid);
+
+                if(process->pid == pid) {
+                    client->process = process;
+                    client->pid = process->pid;
+                    client->pty = process->pty;
+                }
+            }
+
+            printf("debug pid: %d\n", client->pid);
+
+            if (client->pid == 0) {
+                lwsl_warn("invalid pid, closing connection.\n");
                 return 1;
             }
 
@@ -278,6 +335,7 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
             client->buffer = NULL;
             client->state = STATE_INIT;
             client->pty_len = 0;
+
             pthread_mutex_init(&client->mutex, NULL);
             pthread_cond_init(&client->cond, NULL);
             lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi),
@@ -378,9 +436,8 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
                         }
                     }
                     break;
+
                 case JSON_DATA:
-                    if (client->pid > 0)
-                        break;
                     if (server->credential != NULL) {
                         json_object *obj = json_tokener_parse(client->buffer);
                         struct json_object *o = NULL;
@@ -397,10 +454,16 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
                         }
                     }
 
+                    /*
+                    struct tty_process *process = LIST_FIRST(&server->processes);
+
                     // no client thread, just flagging it as running
                     // attaching pty to redirect input
                     client->running = true;
-                    client->pty = server->pty;
+                    client->pty = process->pty;
+                    */
+
+                    client->running = true;
 
                     break;
 

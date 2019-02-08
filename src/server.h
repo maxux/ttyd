@@ -26,6 +26,20 @@ enum pty_state {
     STATE_INIT, STATE_READY, STATE_DONE
 };
 
+struct tty_server;
+
+struct tty_process {
+    pthread_t thread;              // main fork tread
+    int pid;                       // child process id
+    int pty;                       // pty file descriptor
+    int running;                   // process is running
+    char **argv;                   // command with arguments
+    char *command;                 // full command line
+    struct tty_server *server;     // main server link
+
+    LIST_ENTRY(tty_process) list;
+};
+
 struct tty_client {
     bool running;
     bool initialized;
@@ -41,6 +55,7 @@ struct tty_client {
 
     int pid;
     int pty;
+    struct tty_process *process;
     enum pty_state state;
     char pty_buffer[LWS_PRE + 1 + BUF_SIZE];
     ssize_t pty_len;
@@ -59,29 +74,23 @@ struct pss_http {
 };
 
 struct tty_server {
-    LIST_HEAD(client, tty_client) clients;    // client list
-    int client_count;                         // client count
-    char *prefs_json;                         // client preferences
-    char *credential;                         // encoded basic auth credential
-    int reconnect;                            // reconnect timeout
-    char *index;                              // custom index.html
-    char *command;                            // full command line
-    char **argv;                              // command with arguments
-    int sig_code;                             // close signal
-    char sig_name[20];                        // human readable signal string
-    bool readonly;                            // whether not allow clients to write to the TTY
-    bool check_origin;                        // whether allow websocket connection from different origin
-    int max_clients;                          // maximum clients to support
-    bool once;                                // whether accept only one client and exit on disconnection
-    char socket_path[255];                    // UNIX domain socket path
-    char terminal_type[30];                   // terminal type to report
-    pthread_mutex_t mutex;
+    LIST_HEAD(client, tty_client) clients;     // client list
+    LIST_HEAD(process, tty_process) processes; // process list
 
-    // single process changes
-    pthread_t thread;                         // main fork tread
-    int pid;                                  // child process id
-    int pty;                                  // pty file descriptor
-    int running;                              // process is running
+    int client_count;                          // client count
+    char *prefs_json;                          // client preferences
+    char *credential;                          // encoded basic auth credential
+    int reconnect;                             // reconnect timeout
+    char *index;                               // custom index.html
+    int sig_code;                              // close signal
+    char sig_name[20];                         // human readable signal string
+    bool readonly;                             // whether not allow clients to write to the TTY
+    bool check_origin;                         // whether allow websocket connection from different origin
+    int max_clients;                           // maximum clients to support
+    bool once;                                 // whether accept only one client and exit on disconnection
+    char socket_path[255];                     // UNIX domain socket path
+    char terminal_type[30];                    // terminal type to report
+    pthread_mutex_t mutex;
 };
 
 extern int
