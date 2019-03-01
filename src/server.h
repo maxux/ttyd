@@ -28,6 +28,20 @@ enum pty_state {
 
 struct tty_server;
 
+typedef struct buffer_t {
+    uint8_t *buffer;
+    size_t length;
+
+} buffer_t;
+
+typedef struct circbuf_t {
+    size_t length;
+    char *buffer;
+    char *reader;
+    char *writer;
+
+} circbuf_t;
+
 struct tty_process {
     pthread_t thread;              // main fork tread
     int pid;                       // child process id

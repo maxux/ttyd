@@ -98,6 +98,120 @@ void print_help() {
     );
 }
 
+//
+// generic buffer
+//
+buffer_t *buffer_new(size_t length) {
+    buffer_t *buffer = xmalloc(sizeof(buffer_t));
+    buffer->buffer = xmalloc(length);
+    buffer->length = length;
+
+    return buffer;
+}
+
+void buffer_free(buffer_t *buffer) {
+    free(buffer->buffer);
+    free(buffer);
+}
+
+//
+// circular buffer
+//
+circbuf_t *circular_new(size_t length) {
+    circbuf_t *circular = xmalloc(sizeof(circbuf_t));
+
+    circular->length = length;
+    circular->buffer = xmalloc(length);
+    circular->reader = circular->buffer;
+    circular->writer = circular->buffer;
+
+    return circular;
+}
+
+void circular_free(circbuf_t *circular) {
+    free(circular->buffer);
+    circular->length = 0;
+
+    free(circular);
+}
+
+size_t circular_append(circbuf_t *circular, uint8_t *data, size_t length) {
+    // we have enough space on the buffer to write our data
+    // it's easy
+    if(circular->writer - circular->buffer + length < circular->length) {
+        printf("<> circular append, case 1\n");
+        memcpy(circular->writer, data, length);
+        circular->writer += length;
+
+        // reset writer to the beginin if we are at the end
+        // CHECK: maybe will never occures because of first if
+        if(circular->writer == circular->buffer + circular->length)
+            circular->writer = circular->buffer;
+
+        return length;
+    }
+
+    // if data is larger than our circular buffer
+    // let's just put the latest data available in the beginin
+    if(length >= circular->length) {
+        printf("<> circular append, case 2\n");
+        memcpy(circular->buffer, data + length - circular->length, circular->length);
+        circular->writer = circular->buffer;
+        circular->reader = circular->buffer;
+        return length;
+    }
+
+    printf("<> circular append, case 3\n");
+
+    // we don't have enough space to store data in one shot
+    // let's copy what we can, then go back to the beginin and
+    // write again, ...
+    size_t bufremain = circular->length - (circular->writer - circular->buffer);
+    memcpy(circular->writer, data, bufremain);
+    circular->writer = circular->buffer;
+
+    memcpy(circular->writer, data + bufremain, length - bufremain);
+    circular->writer += length - bufremain;
+}
+
+buffer_t *circular_get(circbuf_t *circular, size_t length) {
+
+    if(length > circular->length)
+        return NULL;
+
+    if(length == 0) {
+        // buffer is full, we know length will be
+        // the full buffer
+        if(circular->reader != circular->buffer) {
+            length = circular->length;
+
+        } else {
+            // the buffer is not full, computing
+            // how long is it right now
+            length = circular->writer - circular->buffer;
+        }
+    }
+
+    buffer_t *response = buffer_new(length);
+
+    if(circular->reader == circular->buffer) {
+        // if the reader is on the beginin, we can
+        // just copy available data and returns it
+        memcpy(response->buffer, circular->reader, length);
+        return response;
+    }
+
+    // buffer is full, we need to start from reader, copy
+    // 'til the end of the buffer, then appends the rest which
+    // is the beginin of the buffer
+    size_t remain = circular->length - (circular->reader - circular->buffer);
+
+    memcpy(response->buffer, circular->reader, remain);
+    memcpy(response->buffer + remain, circular->buffer, circular->reader - circular->buffer);
+
+    return response;
+}
+
 struct tty_server *tty_server_new() {
     struct tty_server *ts;
 
