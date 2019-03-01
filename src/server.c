@@ -316,6 +316,17 @@ void sig_handler(int sig) {
     get_sig_name(sig, sig_name, sizeof(sig_name));
     lwsl_notice("received signal: %s (%d), exiting...\n", sig_name, sig);
     force_exit = true;
+
+    // killing processes
+    struct tty_process *process;
+    LIST_FOREACH(process, &server->processes, list) {
+        if(process->running == false)
+            continue;
+
+        lwsl_warn("killing process %d\n", process->pid);
+        kill(process->pid, SIGTERM);
+    }
+
     lws_cancel_service(context);
     lwsl_notice("send ^C to force exit.\n");
 }

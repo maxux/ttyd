@@ -40,6 +40,7 @@ send_initial_message(struct lws *wsi, int index) {
     char buffer[128];
     int n = 0;
 
+    // FIXME
     struct tty_process *process = LIST_FIRST(&server->processes);
 
     char cmd = initial_cmds[index];
