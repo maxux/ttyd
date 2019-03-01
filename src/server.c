@@ -352,7 +352,10 @@ int main(int argc, char **argv) {
     server = tty_server_new();
 
     tty_server_attach_process(server, __argc, __argv);
-    tty_server_attach_process(server, __argc, __argv);
+
+    int __nargc = 5;
+    char *__nargv[5] = {"/usr/bin/python3", "/tmp/maxux-ttyd.py", "--demo", "--argument", "debug"};
+    tty_server_attach_process(server, __nargc, __nargv);
 
     pthread_mutex_init(&server->mutex, NULL);
 
