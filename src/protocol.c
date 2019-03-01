@@ -227,10 +227,14 @@ void * mainthread_run_command(void *args) {
             memset(pty_buffer, 0, sizeof(pty_buffer));
             pty_len = read(pty, pty_buffer, sizeof(pty_buffer));
 
-            /*
-            if(pty_len < 0)
+            if(pty_len < 0) {
                 perror("read");
-            */
+                process->running = false;
+                continue;
+            }
+
+            // keeping logs into our circular buffer
+            circular_append(process->logs, pty_buffer, pty_len);
 
             struct tty_client *client;
             LIST_FOREACH(client, &server->clients, list) {

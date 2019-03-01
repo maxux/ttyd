@@ -260,6 +260,8 @@ struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, c
 
     *ptr = '\0'; // null terminator
 
+    process->logs = circular_new(LOGS_SIZE);
+
     // starting the process
     int err = pthread_create(&process->thread, NULL, mainthread_run_command, process);
     if (err != 0) {

@@ -18,6 +18,8 @@
 
 #define BUF_SIZE 32768 // 32K
 
+#define LOGS_SIZE 16384 // 16K
+
 extern volatile bool force_exit;
 extern struct lws_context *context;
 extern struct tty_server *server;
@@ -50,6 +52,7 @@ struct tty_process {
     char **argv;                   // command with arguments
     char *command;                 // full command line
     struct tty_server *server;     // main server link
+    circbuf_t *logs;               // circular buffer for logs
 
     LIST_ENTRY(tty_process) list;
 };
@@ -107,9 +110,18 @@ struct tty_server {
     pthread_mutex_t mutex;
 };
 
-extern int
-callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
+extern int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
+extern int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
 
-extern int
-callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
+struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, char **argv);
+struct tty_process *process_getby_pid(int pid, int only_running);
+
+// circular buffer
+circbuf_t *circular_new(size_t length);
+void circular_free(circbuf_t *circular);
+size_t circular_append(circbuf_t *circular, uint8_t *data, size_t length);
+buffer_t *circular_get(circbuf_t *circular, size_t length);
+
+buffer_t *buffer_new(size_t length);
+void buffer_free(buffer_t *buffer);
 
