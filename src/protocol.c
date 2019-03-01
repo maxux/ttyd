@@ -309,7 +309,7 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
 
             // searching this pid
             LIST_FOREACH(process, &server->processes, list) {
-                printf("matching pid: %d <> %d\n", process->pid, pid);
+                // printf("matching pid: %d <> %d\n", process->pid, pid);
 
                 if(process->pid == pid) {
                     client->process = process;
@@ -318,7 +318,7 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
                 }
             }
 
-            printf("debug pid: %d\n", client->pid);
+            lwsl_notice("client pid selected: %d\n", client->pid);
 
             if (client->pid == 0) {
                 lwsl_warn("invalid pid, closing connection.\n");

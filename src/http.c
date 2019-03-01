@@ -157,6 +157,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user, voi
             int n = sizeof(buffer) - LWS_PRE;
             if (pss->ptr - pss->buffer + n > pss->len)
                 n = (int) (pss->len - (pss->ptr - pss->buffer));
+
             memcpy(buffer + LWS_PRE, pss->ptr, n);
             pss->ptr += n;
             if (lws_write_http(wsi, buffer + LWS_PRE, (size_t) n) < n) {

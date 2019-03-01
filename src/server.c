@@ -274,6 +274,20 @@ struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, c
     return process;
 }
 
+struct tty_process *process_getby_pid(int pid, int only_running) {
+    struct tty_process *process;
+
+    LIST_FOREACH(process, &server->processes, list) {
+        if(process->running == false && only_running == 1)
+            continue;
+
+        if(process->pid == pid)
+            return process;
+    }
+
+    return NULL;
+}
+
 void tty_server_free(struct tty_server *ts) {
     if (ts == NULL)
         return;
