@@ -350,16 +350,30 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
             pthread_mutex_lock(&server->mutex);
             LIST_INSERT_HEAD(&server->clients, client, list);
             server->client_count++;
-            pthread_mutex_unlock(&server->mutex);
             lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI);
 
             lwsl_notice("WS   %s - %s (%s), clients: %d\n", buf, client->address, client->hostname, server->client_count);
+
+            // sending initial logs
+            buffer_t *logs = circular_get(client->process->logs, 0);
+
+            memcpy(client->pty_buffer + LWS_PRE + 1, logs->buffer, logs->length);
+            client->pty_len = logs->length;
+            client->state = STATE_READY;
+
+            pthread_mutex_unlock(&server->mutex);
+
+            // sending effective data
+            lws_callback_on_writable(client->wsi);
+            buffer_free(logs);
+
             break;
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
             if (!client->initialized) {
                 if (client->initial_cmd_index == sizeof(initial_cmds)) {
                     client->initialized = true;
+                    lws_callback_on_writable(wsi);
                     break;
                 }
 
