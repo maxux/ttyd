@@ -172,7 +172,7 @@ function handleReceive(zsession) {
 
 var terminalContainer = document.getElementById('terminal-container'),
     httpsEnabled = window.location.protocol === 'https:',
-    url = (httpsEnabled ? 'wss://' : 'ws://') + window.location.host + window.location.pathname
+    url = (httpsEnabled ? 'wss://' : 'ws://') + window.location.host // + window.location.pathname
         + (window.location.pathname.endsWith('/') ? '' : '/') + 'ws',
     textDecoder = new TextDecoder(),
     textEncoder = new TextEncoder(),
@@ -181,11 +181,12 @@ var terminalContainer = document.getElementById('terminal-container'),
     reconnectTimer, term, title, wsError;
 
 var openWs = function() {
-    var hash = window.location.hash.substr(1);
+    var path = window.location.pathname;
+    var pid = path.split(/[\\/]/).pop();
 
     // FIXME: sanity check about hash
 
-    var ws = new WebSocket(url + '/' + hash, ['tty']);
+    var ws = new WebSocket(url + '/' + pid, ['tty']);
     var sendMessage = function (message) {
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(textEncoder.encode(message));
