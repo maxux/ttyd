@@ -16,9 +16,8 @@ struct callback_response {
 };
 
 
-int
-check_auth(struct lws *wsi) {
-    if (server->credential == NULL)
+int check_auth(struct lws *wsi) {
+    if(server->credential == NULL)
         return 0;
 
     int hdr_length = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
