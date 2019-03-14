@@ -26,6 +26,13 @@
 #include "server.h"
 #include "utils.h"
 
+#undef lwsl_notice
+#undef lwsl_err
+#undef lwsl_warn
+#define lwsl_notice printf
+#define lwsl_err printf
+#define lwsl_warn printf
+
 // initial message list
 char initial_cmds[] = {
     SET_WINDOW_TITLE,
@@ -209,6 +216,10 @@ void * mainthread_run_command(void *args) {
             process->running = true;
             break;
     }
+
+    // process is ready, unlocking mutex
+    // locked during initializing
+    pthread_mutex_unlock(&process->mutex);
 
     while (process->running) {
         FD_ZERO (&des_set);

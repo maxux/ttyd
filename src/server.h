@@ -53,6 +53,7 @@ struct tty_process {
     char *command;                 // full command line
     struct tty_server *server;     // main server link
     circbuf_t *logs;               // circular buffer for logs
+    pthread_mutex_t mutex;
 
     LIST_ENTRY(tty_process) list;
 };

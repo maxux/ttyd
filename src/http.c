@@ -2,10 +2,18 @@
 #include <libwebsockets.h>
 #include <json.h>
 #include <signal.h>
+#include <pthread.h>
 
 #include "server.h"
 #include "html.h"
 #include "utils.h"
+
+#undef lwsl_notice
+#undef lwsl_err
+#undef lwsl_warn
+#define lwsl_notice printf
+#define lwsl_err printf
+#define lwsl_warn printf
 
 struct callback_response {
     struct lws *wsi;
@@ -171,6 +179,8 @@ static int routing_get_api_processes(struct callback_response *r) {
 
     struct tty_process *proc;
 
+    pthread_mutex_lock(&server->mutex);
+
     LIST_FOREACH(proc, &server->processes, list) {
         struct json_object *process = json_object_new_object();
 
@@ -180,6 +190,8 @@ static int routing_get_api_processes(struct callback_response *r) {
 
         json_object_array_add(processes, process);
     }
+
+    pthread_mutex_unlock(&server->mutex);
 
     json_object_object_add(root, "processes", processes);
 
@@ -229,13 +241,14 @@ static int routing_get_api_process_start(struct callback_response *r) {
     lwsl_warn("starting process: %s [with %d args]\n", argv[0], argc - 1);
     struct tty_process *proc = tty_server_attach_process(server, argc, argv);
 
-    // FIXME.
-    while(!proc->pid)
-        usleep(1000000);
+    // waiting for process to be ready
+    pthread_mutex_lock(&proc->mutex);
 
     struct json_object *root = json_object_new_object();
     json_object_object_add(root, "status", json_object_new_string("success"));
     json_object_object_add(root, "pid", json_object_new_int64(proc->pid));
+
+    pthread_mutex_unlock(&proc->mutex);
 
     char *jsondumps = strdup(json_object_to_json_string(root));
     json_object_put(root);
@@ -359,6 +372,8 @@ routing_get:
             snprintf(pss->path, sizeof(pss->path), "%s", (const char *)in);
             lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi), name, sizeof(name), rip, sizeof(rip));
             lwsl_notice("HTTP %s - %s (%s)\n", (char *) in, rip, name);
+
+            printf(">> %s\n", pss->path);
 
             switch (check_auth(wsi)) {
                 case 0:

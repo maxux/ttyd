@@ -14,6 +14,13 @@
 #include "server.h"
 #include "utils.h"
 
+#undef lwsl_notice
+#undef lwsl_err
+#undef lwsl_warn
+#define lwsl_notice printf
+#define lwsl_err printf
+#define lwsl_warn printf
+
 #ifndef TTYD_VERSION
 #define TTYD_VERSION "unknown"
 #endif
@@ -139,7 +146,7 @@ size_t circular_append(circbuf_t *circular, uint8_t *data, size_t length) {
     // we have enough space on the buffer to write our data
     // it's easy
     if(circular->writer - circular->buffer + length < circular->length) {
-        printf("<> circular append, case 1\n");
+        // printf("<> circular append, case 1\n");
         memcpy(circular->writer, data, length);
         circular->writer += length;
 
@@ -161,7 +168,7 @@ size_t circular_append(circbuf_t *circular, uint8_t *data, size_t length) {
         return length;
     }
 
-    printf("<> circular append, case 3\n");
+    // printf("<> circular append, case 3\n");
 
     // we don't have enough space to store data in one shot
     // let's copy what we can, then go back to the beginin and
@@ -175,7 +182,6 @@ size_t circular_append(circbuf_t *circular, uint8_t *data, size_t length) {
 }
 
 buffer_t *circular_get(circbuf_t *circular, size_t length) {
-
     if(length > circular->length)
         return NULL;
 
@@ -262,6 +268,10 @@ struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, c
 
     process->logs = circular_new(LOGS_SIZE);
 
+    // initial lock, will unlock when process is ready
+    pthread_mutex_init(&process->mutex, NULL);
+    pthread_mutex_lock(&process->mutex);
+
     // starting the process
     int err = pthread_create(&process->thread, NULL, mainthread_run_command, process);
     if (err != 0) {
@@ -269,23 +279,32 @@ struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, c
         return NULL;
     }
 
+    pthread_mutex_lock(&ts->mutex);
     LIST_INSERT_HEAD(&ts->processes, process, list);
+    pthread_mutex_unlock(&server->mutex);
 
     return process;
 }
 
 struct tty_process *process_getby_pid(int pid, int only_running) {
     struct tty_process *process;
+    struct tty_process *found = NULL;
+
+    pthread_mutex_lock(&server->mutex);
 
     LIST_FOREACH(process, &server->processes, list) {
         if(process->running == false && only_running == 1)
             continue;
 
-        if(process->pid == pid)
-            return process;
+        if(process->pid == pid) {
+            found = process;
+            break;
+        }
     }
 
-    return NULL;
+    pthread_mutex_unlock(&server->mutex);
+
+    return found;
 }
 
 void tty_server_free(struct tty_server *ts) {
@@ -339,6 +358,8 @@ void sig_handler(int sig) {
 
         lwsl_warn("killing process %d\n", process->pid);
         kill(process->pid, SIGTERM);
+
+        // FIXME: defunct
     }
 
     lws_cancel_service(context);
@@ -522,7 +543,7 @@ int main(int argc, char **argv) {
     }
     */
 
-    lws_set_log_level(debug_level, NULL);
+    // lws_set_log_level(debug_level, NULL);
 
 #if LWS_LIBRARY_VERSION_MAJOR >= 2
     char server_hdr[128] = "";
