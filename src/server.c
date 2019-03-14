@@ -244,6 +244,10 @@ struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, c
     process = xmalloc(sizeof(struct tty_process));
     memset(process, 0, sizeof(struct tty_process));
 
+    // internal id is just variable's address
+    // it's unique for the running instance
+    process->id = (size_t) process;
+
     process->server = server;
     process->argv = xmalloc(sizeof(char *) * (argc + 1));
     for (int i = 0; i < argc; i++) {
@@ -306,6 +310,25 @@ struct tty_process *process_getby_pid(int pid, int only_running) {
 
     return found;
 }
+
+struct tty_process *process_getby_id(size_t id) {
+    struct tty_process *process;
+    struct tty_process *found = NULL;
+
+    pthread_mutex_lock(&server->mutex);
+
+    LIST_FOREACH(process, &server->processes, list) {
+        if(process->id == id) {
+            found = process;
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&server->mutex);
+
+    return found;
+}
+
 
 void tty_server_free(struct tty_server *ts) {
     if (ts == NULL)

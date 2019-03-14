@@ -313,28 +313,20 @@ callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
             // initializing client to unknown pid
             client->pid = 0;
 
-            int pid = atoi(buf + sizeof(WS_PATH));
-            lwsl_notice("WS   request pid: %d\n", pid);
+            size_t iid = strtoul(buf + sizeof(WS_PATH), NULL, 10);
+            lwsl_notice("WS   request pid: %lu\n", iid);
 
             struct tty_process *process;
-
-            // searching this pid
-            LIST_FOREACH(process, &server->processes, list) {
-                // printf("matching pid: %d <> %d\n", process->pid, pid);
-
-                if(process->pid == pid) {
-                    client->process = process;
-                    client->pid = process->pid;
-                    client->pty = process->pty;
-                }
-            }
-
-            lwsl_notice("client pid selected: %d\n", client->pid);
-
-            if (client->pid == 0) {
-                lwsl_warn("invalid pid, closing connection.\n");
+            if(!(process = process_getby_id(iid))) {
+                lwsl_warn("invalid id, closing connection.\n");
                 return 1;
             }
+
+            client->process = process;
+            client->pid = process->pid;
+            client->pty = process->pty;
+
+            lwsl_notice("client id selected: %d\n", client->pid);
 
             if (server->check_origin && !check_host_origin(wsi)) {
                 lwsl_warn("refuse to serve WS client from different origin due to the --check-origin option.\n");

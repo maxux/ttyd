@@ -46,6 +46,7 @@ typedef struct circbuf_t {
 
 struct tty_process {
     pthread_t thread;              // main fork tread
+    size_t id;                     // internal id representation
     int pid;                       // child process id
     int pty;                       // pty file descriptor
     int running;                   // process is running
@@ -115,7 +116,9 @@ extern int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void
 extern int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
 
 struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, char **argv);
+
 struct tty_process *process_getby_pid(int pid, int only_running);
+struct tty_process *process_getby_id(size_t id);
 
 // circular buffer
 circbuf_t *circular_new(size_t length);

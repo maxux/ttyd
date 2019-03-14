@@ -182,11 +182,9 @@ var terminalContainer = document.getElementById('terminal-container'),
 
 var openWs = function() {
     var path = window.location.pathname;
-    var pid = path.split(/[\\/]/).pop();
+    var id = path.split(/[\\/]/).pop();
 
-    // FIXME: sanity check about hash
-
-    var ws = new WebSocket(url + '/' + pid, ['tty']);
+    var ws = new WebSocket(url + '/' + id, ['tty']);
     var sendMessage = function (message) {
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(textEncoder.encode(message));

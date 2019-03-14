@@ -23,7 +23,6 @@ struct callback_response {
     unsigned char *end;
 };
 
-
 int check_auth(struct lws *wsi) {
     if(server->credential == NULL)
         return 0;
@@ -138,20 +137,21 @@ static int routing_get_root(struct callback_response *r) {
     return 0;
 }
 
-static int routing_get_pid(struct callback_response *r, char *pid) {
-    if(strlen(pid) == 0) {
-        lwsl_err("pid not defined\n");
+static int routing_get_id(struct callback_response *r, char *id) {
+    if(strlen(id) == 0) {
+        lwsl_err("id not defined\n");
         lws_return_http_status(r->wsi, HTTP_STATUS_NOT_FOUND, NULL);
         return 1;
     }
 
-    lwsl_notice("requesting to attach pid <%s>\n", pid);
+    size_t iid = strtoul(id, NULL, 10);
+    lwsl_notice("requesting to attach id <%lu>\n", iid);
 
     // checking for pid validity, this is actually not an error
     // the client will not be able to connect later via the websocket
     // anyway, but we can at least ensure it's an integer...
-    if(atoi(pid) < 1) {
-        lwsl_err("invalid pid\n");
+    if(iid == 0) {
+        lwsl_err("invalid id\n");
         lws_return_http_status(r->wsi, HTTP_STATUS_NOT_FOUND, NULL);
         return 1;
     }
@@ -187,6 +187,7 @@ static int routing_get_api_processes(struct callback_response *r) {
         json_object_object_add(process, "pid", json_object_new_int64(proc->pid));
         json_object_object_add(process, "command", json_object_new_string(proc->command));
         json_object_object_add(process, "running", json_object_new_boolean(proc->running));
+        json_object_object_add(process, "id", json_object_new_int64(proc->id));
 
         json_object_array_add(processes, process);
     }
@@ -247,6 +248,7 @@ static int routing_get_api_process_start(struct callback_response *r) {
     struct json_object *root = json_object_new_object();
     json_object_object_add(root, "status", json_object_new_string("success"));
     json_object_object_add(root, "pid", json_object_new_int64(proc->pid));
+    json_object_object_add(root, "id", json_object_new_int64(proc->id));
 
     pthread_mutex_unlock(&proc->mutex);
 
@@ -263,20 +265,27 @@ static int routing_get_api_process_stop(struct callback_response *r) {
     const char *ppid;
     char pid[32];
 
-    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "pid=", pid, sizeof(pid)))) {
-        char *status = http_response_json_error("missing pid");
+    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "id=", pid, sizeof(pid)))) {
+        char *status = http_response_json_error("missing id");
         int value = http_response(r, "application/json", strlen(status), status);
         free(status);
         return value;
     }
 
-    int ipid = atoi(ppid);
-    lwsl_warn("requesing stopping process: %d\n", ipid);
+    size_t iid = strtoul(ppid, NULL, 10);
+    lwsl_warn("requesing stopping process: %lu\n", iid);
 
     // looking for and killing processes
     struct tty_process *process;
-    if(!(process = process_getby_pid(ipid, 1))) {
-        char *status = http_response_json_error("invalid pid");
+    if(!(process = process_getby_id(iid))) {
+        char *status = http_response_json_error("invalid id");
+        int value = http_response(r, "application/json", strlen(status), status);
+        free(status);
+        return value;
+    }
+
+    if(!process->running) {
+        char *status = http_response_json_error("process already stopped");
         int value = http_response(r, "application/json", strlen(status), status);
         free(status);
         return value;
@@ -297,20 +306,20 @@ static int routing_get_api_process_logs(struct callback_response *r) {
     const char *ppid;
     char pid[32];
 
-    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "pid=", pid, sizeof(pid)))) {
-        char *status = http_response_json_error("missing pid");
+    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "id=", pid, sizeof(pid)))) {
+        char *status = http_response_json_error("missing id");
         int value = http_response(r, "application/json", strlen(status), status);
         free(status);
         return value;
     }
 
-    int ipid = atoi(ppid);
-    lwsl_warn("requesing stopping process: %d\n", ipid);
+    size_t iid = strtoul(ppid, NULL, 10);
+    lwsl_warn("requesing stopping process: %lu\n", iid);
 
     // killing processes
     struct tty_process *process;
-    if(!(process = process_getby_pid(ipid, 1))) {
-        char *status = http_response_json_error("invalid pid");
+    if(!(process = process_getby_id(iid))) {
+        char *status = http_response_json_error("invalid id");
         int value = http_response(r, "application/json", strlen(status), status);
         free(status);
         return value;
@@ -389,8 +398,8 @@ routing_get:
             if(strcmp(pss->path, "/") == 0)
                 return routing_get_root(&r);
 
-            if(strncmp(pss->path, "/pid/", 5) == 0)
-                return routing_get_pid(&r, pss->path + 5);
+            if(strncmp(pss->path, "/attach/", 8) == 0)
+                return routing_get_id(&r, pss->path + 8);
 
             if(strncmp(pss->path, "/auth_token.js", 14) == 0)
                 return routing_get_auth_token(&r);
