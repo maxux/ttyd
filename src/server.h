@@ -143,3 +143,18 @@ buffer_t *circular_get(circbuf_t *circular, size_t length);
 buffer_t *buffer_new(size_t length);
 void buffer_free(buffer_t *buffer);
 
+extern int __verbose;
+void *warnp(char *str);
+
+#ifndef RELEASE
+    #define verbose(...) { if(__verbose) { printf(__VA_ARGS__); } }
+    // #define verbose(...) { printf(__VA_ARGS__); }
+    #define debug(...) { printf(__VA_ARGS__); }
+    #define debughex(...) { hexdump(__VA_ARGS__); }
+#else
+    #define verbose(...) { if(__verbose) { printf(__VA_ARGS__); } }
+    #define debug(...) ((void)0)
+    #define debughex(...) ((void)0)
+#endif
+
+

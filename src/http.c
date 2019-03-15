@@ -8,13 +8,6 @@
 #include "html.h"
 #include "utils.h"
 
-#undef lwsl_notice
-#undef lwsl_err
-#undef lwsl_warn
-#define lwsl_notice printf
-#define lwsl_err printf
-#define lwsl_warn printf
-
 struct callback_response {
     struct lws *wsi;
     struct pss_http *pss;
@@ -157,19 +150,19 @@ static int routing_get_root(struct callback_response *r) {
 
 static int routing_get_id(struct callback_response *r, char *id) {
     if(strlen(id) == 0) {
-        lwsl_err("id not defined\n");
+        printf("[-] routing_get_id: id not defined\n");
         lws_return_http_status(r->wsi, HTTP_STATUS_NOT_FOUND, NULL);
         return 1;
     }
 
     size_t iid = strtoul(id, NULL, 10);
-    lwsl_notice("requesting to attach id <%lu>\n", iid);
+    debug("[+] routing_get_id: requesting to attach id <%lu>\n", iid);
 
     // checking for pid validity, this is actually not an error
     // the client will not be able to connect later via the websocket
     // anyway, but we can at least ensure it's an integer...
     if(iid == 0) {
-        lwsl_err("invalid id\n");
+        printf("[-] routing_get_id: invalid id\n");
         lws_return_http_status(r->wsi, HTTP_STATUS_NOT_FOUND, NULL);
         return 1;
     }
@@ -257,7 +250,7 @@ static int routing_get_api_process_start(struct callback_response *r) {
         }
     }
 
-    lwsl_warn("starting process: %s [with %d args]\n", argv[0], argc - 1);
+    verbose("[+] api: starting process: %s [with %d args]\n", argv[0], argc - 1);
     struct tty_process *proc = tty_server_process_start(server, argc, argv);
 
     // waiting for process to be ready
@@ -290,7 +283,7 @@ static int routing_get_api_process_stop(struct callback_response *r) {
         return http_die_response_json_error(r, "missing id");
 
     size_t iid = strtoul(ppid, NULL, 10);
-    lwsl_warn("requesing stopping process: %lu\n", iid);
+    verbose("[+] api: requesting stopping process: %lu\n", iid);
 
     // looking for and killing processes
     struct tty_process *process;
@@ -314,7 +307,7 @@ static int routing_get_api_process_logs(struct callback_response *r) {
         return http_die_response_json_error(r, "missing id");
 
     size_t iid = strtoul(ppid, NULL, 10);
-    lwsl_warn("requesing stopping process: %lu\n", iid);
+    verbose("[+] api: requesing process logs: %lu\n", iid);
 
     // looking up for processes
     struct tty_process *process;
@@ -376,9 +369,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 routing_get:
             snprintf(pss->path, sizeof(pss->path), "%s", (const char *)in);
             lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi), name, sizeof(name), rip, sizeof(rip));
-            lwsl_notice("HTTP %s - %s (%s)\n", (char *) in, rip, name);
-
-            printf(">> %s\n", pss->path);
+            verbose("[+] http: %s - %s (%s)\n", (char *) in, rip, name);
 
             switch (check_auth(wsi)) {
                 case 0:

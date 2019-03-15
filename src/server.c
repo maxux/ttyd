@@ -14,13 +14,6 @@
 #include "server.h"
 #include "utils.h"
 
-#undef lwsl_notice
-#undef lwsl_err
-#undef lwsl_warn
-#define lwsl_notice printf
-#define lwsl_err printf
-#define lwsl_warn printf
-
 #ifndef TTYD_VERSION
 #define TTYD_VERSION "unknown"
 #endif
@@ -31,13 +24,15 @@ volatile bool force_exit = false;
 struct lws_context *context;
 struct tty_server *server;
 
+int __verbose = 0;
+
 char *__process_states[] = {"created", "starting", "running", "stopping", "stopped", "crashed"};
 
 // websocket protocols
 static const struct lws_protocols protocols[] = {
         {"http-only", callback_http, sizeof(struct pss_http),   0},
         {"tty",       callback_tty,  sizeof(struct tty_client), 0},
-        {NULL, NULL,                 0,                         0}
+        {NULL, NULL, 0, 0}
 };
 
 // websocket extensions
@@ -55,10 +50,10 @@ static const struct option options[] = {
         {"uid",          required_argument, NULL, 'u'},
         {"gid",          required_argument, NULL, 'g'},
         {"signal",       required_argument, NULL, 's'},
-        {"signal-list",  no_argument,       NULL,  1},
+        {"signal-list",  no_argument,       NULL, '1'},
         {"reconnect",    required_argument, NULL, 'r'},
         {"index",        required_argument, NULL, 'I'},
-        {"ipv6",         no_argument, NULL, '6'},
+        {"ipv6",         no_argument,       NULL, '6'},
         {"ssl",          no_argument,       NULL, 'S'},
         {"ssl-cert",     required_argument, NULL, 'C'},
         {"ssl-key",      required_argument, NULL, 'K'},
@@ -70,7 +65,7 @@ static const struct option options[] = {
         {"debug",        required_argument, NULL, 'd'},
         {"version",      no_argument,       NULL, 'v'},
         {"help",         no_argument,       NULL, 'h'},
-        {NULL,           0,                 0,     0}
+        {NULL, 0, 0, 0}
 };
 static const char *opt_string = "p:i:c:u:g:s:r:I:6aSC:K:A:Rt:T:Om:od:vh";
 
@@ -399,7 +394,7 @@ void sig_handler(int sig) {
 
     char sig_name[20];
     get_sig_name(sig, sig_name, sizeof(sig_name));
-    lwsl_notice("received signal: %s (%d), exiting...\n", sig_name, sig);
+    verbose("[+] received signal: %s (%d), exiting...\n", sig_name, sig);
     force_exit = true;
 
     // killing processes
@@ -415,7 +410,7 @@ void sig_handler(int sig) {
     pthread_mutex_unlock(&server->mutex);
 
     lws_cancel_service(context);
-    lwsl_notice("send ^C to force exit.\n");
+    verbose("[+] waiting, you can force with another SIGINT\n");
 }
 
 int main(int argc, char **argv) {
@@ -595,7 +590,7 @@ int main(int argc, char **argv) {
     }
     */
 
-    // lws_set_log_level(debug_level, NULL);
+    lws_set_log_level(0, NULL);
 
 #if LWS_LIBRARY_VERSION_MAJOR >= 2
     char server_hdr[128] = "";
@@ -643,39 +638,39 @@ int main(int argc, char **argv) {
 #endif
     }
 
-    lwsl_notice("ttyd %s (libwebsockets %s)\n", TTYD_VERSION, LWS_LIBRARY_VERSION);
-    lwsl_notice("tty configuration:\n");
-    if (server->credential != NULL)
-        lwsl_notice("  credential: %s\n", server->credential);
+    verbose("[+] initializing tfmux %s (libwebsockets %s)\n", TTYD_VERSION, LWS_LIBRARY_VERSION);
+    verbose("[+] tty configuration:\n");
 
-    // lwsl_notice("  start command: %s\n", server->command);
+    if(server->credential != NULL)
+        verbose("[+]   credential: %s\n", server->credential);
 
-    lwsl_notice("  close signal: %s (%d)\n", server->sig_name, server->sig_code);
-    lwsl_notice("  terminal type: %s\n", server->terminal_type);
-    lwsl_notice("  reconnect timeout: %ds\n", server->reconnect);
-    if (server->check_origin)
-        lwsl_notice("  check origin: true\n");
-    if (server->readonly)
-        lwsl_notice("  readonly: true\n");
-    if (server->max_clients > 0)
-        lwsl_notice("  max clients: %d\n", server->max_clients);
-    if (server->once)
-        lwsl_notice("  once: true\n");
-    if (server->index != NULL) {
-        lwsl_notice("  custom index.html: %s\n", server->index);
-    }
+    verbose("[+]   close signal: %s (%d)\n", server->sig_name, server->sig_code);
+    verbose("[+]   terminal type: %s\n", server->terminal_type);
+    verbose("[+]   reconnect timeout: %ds\n", server->reconnect);
 
-    signal(SIGINT, sig_handler);  // ^C
-    signal(SIGTERM, sig_handler); // kill
+    if(server->check_origin)
+        verbose("[+]   check origin: true\n");
+
+    if(server->readonly)
+        verbose("[+]   readonly: true\n");
+
+    if(server->max_clients > 0)
+        verbose("[+]   max clients: %d\n", server->max_clients);
+
+    if(server->index != NULL)
+        verbose("[+]   custom index.html: %s\n", server->index);
+
+    signal(SIGINT, sig_handler);
+    signal(SIGTERM, sig_handler);
 
     context = lws_create_context(&info);
-    if (context == NULL) {
-        lwsl_err("libwebsockets init failed\n");
+    if(context == NULL) {
+        fprintf(stderr, "[-] libwebsockets init failed\n");
         return 1;
     }
 
     // libwebsockets main loop
-    while (!force_exit) {
+    while(!force_exit) {
         lws_service(context, 10);
     }
 
