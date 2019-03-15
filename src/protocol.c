@@ -181,47 +181,53 @@ cleanup:
 void * mainthread_run_command(void *args) {
     fd_set des_set;
     int pty = 0;
+    pid_t pid;
 
     struct tty_process *process = (struct tty_process *) args;
     struct tty_server *server = process->server;
 
-    pid_t pid = forkpty(&pty, NULL, NULL, NULL);
+    // let's do our job
+    pthread_mutex_lock(&process->mutex);
 
-    switch (pid) {
-        case -1: /* error */
-            lwsl_err("forkpty, error: %d (%s)\n", errno, strerror(errno));
-            return NULL;
-
-        case 0: /* child */
-            if (setenv("TERM", server->terminal_type, true) < 0) {
-                perror("setenv");
-                pthread_exit((void *) 1);
-            }
-
-            printf("executing: %s\n", process->argv[0]);
-
-            // FIXME: if process fails, segfault later on pty
-
-            if (execvp(process->argv[0], process->argv) < 0) {
-                perror("execvp");
-                pthread_exit((void *) 1);
-            }
-
-            return NULL;
-
-        default: /* parent */
-            lwsl_notice("started process, pid: %d, pty: %d\n", pid, pty);
-            process->pid = pid;
-            process->pty = pty;
-            process->running = true;
-            break;
+    if((pid = forkpty(&pty, NULL, NULL, NULL)) < 0) {
+        lwsl_err("forkpty, error: %d (%s)\n", errno, strerror(errno));
+        return NULL;
     }
 
-    // process is ready, unlocking mutex
-    // locked during initializing
+    process->state = STARTING;
+
+    if(pid == 0) {
+        if(setenv("TERM", server->terminal_type, true) < 0) {
+            perror("setenv");
+            pthread_exit((void *) 1);
+        }
+
+        printf("[+] =============================================\n");
+        printf("[+] tfmux: initializing subprocess\n");
+        printf("[+] tfmux: starting: %s\n", process->argv[0]);
+        printf("[+] =============================================\n");
+
+        // FIXME: if process fails, segfault later on pty
+
+        if(execvp(process->argv[0], process->argv) < 0) {
+            perror("execvp");
+            pthread_exit((void *) 1);
+        }
+
+        return NULL;
+    }
+
+    lwsl_notice("started process, pid: %d, pty: %d\n", pid, pty);
+    process->pid = pid;
+    process->pty = pty;
+    process->running = true;
+    process->state = RUNNING;
+
+    // we are ready, let notify this
+    pthread_cond_signal(&process->notifier);
     pthread_mutex_unlock(&process->mutex);
 
-    while (process->running) {
+    while(process->running) {
         FD_ZERO (&des_set);
         FD_SET (pty, &des_set);
         struct timeval tv = { 1, 0 };

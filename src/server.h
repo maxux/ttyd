@@ -44,6 +44,16 @@ typedef struct circbuf_t {
 
 } circbuf_t;
 
+typedef enum tty_process_state {
+    CREATED,
+    STARTING,
+    RUNNING,
+    STOPPING,
+    STOPPED,
+    CRASHED,
+
+} tty_process_state;
+
 struct tty_process {
     pthread_t thread;              // main fork tread
     size_t id;                     // internal id representation
@@ -55,6 +65,8 @@ struct tty_process {
     struct tty_server *server;     // main server link
     circbuf_t *logs;               // circular buffer for logs
     pthread_mutex_t mutex;
+    pthread_cond_t notifier;
+    tty_process_state state;       // process state
 
     LIST_ENTRY(tty_process) list;
 };
@@ -115,7 +127,9 @@ struct tty_server {
 extern int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
 extern int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
 
-struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, char **argv);
+char *tty_server_process_state(struct tty_process *process);
+struct tty_process *tty_server_process_stop(struct tty_process *process);
+struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, char **argv);
 
 struct tty_process *process_getby_pid(int pid, int only_running);
 struct tty_process *process_getby_id(size_t id);

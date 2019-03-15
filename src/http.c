@@ -107,6 +107,15 @@ char *http_response_json_ok() {
     return jsondumps;
 }
 
+// build the response, send it and returns value
+int http_die_response_json_ok(struct callback_response *r) {
+    char *status = http_response_json_ok();
+    int value = http_response(r, "application/json", strlen(status), status);
+    free(status);
+
+    return value;
+}
+
 char *http_response_json_error(char *msg) {
     struct json_object *root = json_object_new_object();
     json_object_object_add(root, "status", json_object_new_string("error"));
@@ -116,6 +125,15 @@ char *http_response_json_error(char *msg) {
     json_object_put(root);
 
     return jsondumps;
+}
+
+// build the error response, send it and returns value
+int http_die_response_json_error(struct callback_response *r, char *msg) {
+    char *status = http_response_json_error(msg);
+    int value = http_response(r, "application/json", strlen(status), status);
+    free(status);
+
+    return value;
 }
 
 //
@@ -186,7 +204,7 @@ static int routing_get_api_processes(struct callback_response *r) {
 
         json_object_object_add(process, "pid", json_object_new_int64(proc->pid));
         json_object_object_add(process, "command", json_object_new_string(proc->command));
-        json_object_object_add(process, "running", json_object_new_boolean(proc->running));
+        json_object_object_add(process, "state", json_object_new_string(tty_server_process_state(proc)));
         json_object_object_add(process, "id", json_object_new_int64(proc->id));
 
         json_object_array_add(processes, process);
@@ -240,10 +258,13 @@ static int routing_get_api_process_start(struct callback_response *r) {
     }
 
     lwsl_warn("starting process: %s [with %d args]\n", argv[0], argc - 1);
-    struct tty_process *proc = tty_server_attach_process(server, argc, argv);
+    struct tty_process *proc = tty_server_process_start(server, argc, argv);
 
     // waiting for process to be ready
     pthread_mutex_lock(&proc->mutex);
+
+    while(proc->state == CREATED || proc->state == STARTING)
+        pthread_cond_wait(&proc->notifier, &proc->mutex);
 
     struct json_object *root = json_object_new_object();
     json_object_object_add(root, "status", json_object_new_string("success"));
@@ -265,65 +286,40 @@ static int routing_get_api_process_stop(struct callback_response *r) {
     const char *ppid;
     char pid[32];
 
-    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "id=", pid, sizeof(pid)))) {
-        char *status = http_response_json_error("missing id");
-        int value = http_response(r, "application/json", strlen(status), status);
-        free(status);
-        return value;
-    }
+    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "id=", pid, sizeof(pid))))
+        return http_die_response_json_error(r, "missing id");
 
     size_t iid = strtoul(ppid, NULL, 10);
     lwsl_warn("requesing stopping process: %lu\n", iid);
 
     // looking for and killing processes
     struct tty_process *process;
-    if(!(process = process_getby_id(iid))) {
-        char *status = http_response_json_error("invalid id");
-        int value = http_response(r, "application/json", strlen(status), status);
-        free(status);
-        return value;
-    }
+    if(!(process = process_getby_id(iid)))
+        return http_die_response_json_error(r, "invalid id");
 
-    if(!process->running) {
-        char *status = http_response_json_error("process already stopped");
-        int value = http_response(r, "application/json", strlen(status), status);
-        free(status);
-        return value;
-    }
+    if(!process->running)
+        return http_die_response_json_error(r, "process already stopped");
 
-    lwsl_warn("killing process: %d\n", process->pid);
-    kill(process->pid, SIGTERM);
-    process->running = false;
+    if(!(tty_server_process_stop(process)))
+        return http_die_response_json_error(r, "internal error while stopping the process");
 
-    char *status = http_response_json_ok();
-    int value = http_response(r, "application/json", strlen(status), status);
-    free(status);
-
-    return value;
+    return http_die_response_json_ok(r);
 }
 
 static int routing_get_api_process_logs(struct callback_response *r) {
     const char *ppid;
     char pid[32];
 
-    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "id=", pid, sizeof(pid)))) {
-        char *status = http_response_json_error("missing id");
-        int value = http_response(r, "application/json", strlen(status), status);
-        free(status);
-        return value;
-    }
+    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "id=", pid, sizeof(pid))))
+        return http_die_response_json_error(r, "missing id");
 
     size_t iid = strtoul(ppid, NULL, 10);
     lwsl_warn("requesing stopping process: %lu\n", iid);
 
-    // killing processes
+    // looking up for processes
     struct tty_process *process;
-    if(!(process = process_getby_id(iid))) {
-        char *status = http_response_json_error("invalid id");
-        int value = http_response(r, "application/json", strlen(status), status);
-        free(status);
-        return value;
-    }
+    if(!(process = process_getby_id(iid)))
+        return http_die_response_json_error(r, "invalid id");
 
     // fetching logs.
     buffer_t *logs = circular_get(process->logs, 0);

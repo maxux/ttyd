@@ -31,6 +31,8 @@ volatile bool force_exit = false;
 struct lws_context *context;
 struct tty_server *server;
 
+char *__process_states[] = {"created", "starting", "running", "stopping", "stopped", "crashed"};
+
 // websocket protocols
 static const struct lws_protocols protocols[] = {
         {"http-only", callback_http, sizeof(struct pss_http),   0},
@@ -103,6 +105,11 @@ void print_help() {
                     "Visit https://github.com/tsl0922/ttyd to get more information and report bugs.\n",
             TTYD_VERSION
     );
+}
+
+void *warnp(char *str) {
+    fprintf(stderr, "[-] %s: %s\n", str, strerror(errno));
+    return NULL;
 }
 
 //
@@ -237,7 +244,31 @@ struct tty_server *tty_server_new() {
     return ts;
 }
 
-struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, char **argv) {
+char *tty_server_process_state(struct tty_process *process) {
+    pthread_mutex_lock(&process->mutex);
+    char *state = __process_states[process->state];
+    pthread_mutex_unlock(&process->mutex);
+
+    return state;
+}
+
+struct tty_process *tty_server_process_stop(struct tty_process *process) {
+    if(process->running == false)
+        return NULL;
+
+    printf("[+] killing process: %d\n", process->pid);
+
+    kill(process->pid, SIGTERM);
+
+    pthread_mutex_lock(&process->mutex);
+    process->running = false;
+    process->state = STOPPING;
+    pthread_mutex_unlock(&process->mutex);
+
+    return process;
+}
+
+struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, char **argv) {
     struct tty_process *process;
     size_t cmd_len = 0;
 
@@ -248,6 +279,7 @@ struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, c
     // it's unique for the running instance
     process->id = (size_t) process;
 
+    process->state = CREATED;
     process->server = server;
     process->argv = xmalloc(sizeof(char *) * (argc + 1));
     for (int i = 0; i < argc; i++) {
@@ -274,18 +306,15 @@ struct tty_process *tty_server_attach_process(struct tty_server *ts, int argc, c
 
     // initial lock, will unlock when process is ready
     pthread_mutex_init(&process->mutex, NULL);
-    pthread_mutex_lock(&process->mutex);
+    pthread_cond_init(&process->notifier, NULL);
 
     // starting the process
-    int err = pthread_create(&process->thread, NULL, mainthread_run_command, process);
-    if (err != 0) {
-        lwsl_err("pthread_create return: %d\n", err);
-        return NULL;
-    }
+    if(pthread_create(&process->thread, NULL, mainthread_run_command, process))
+        return warnp("pthread_create");
 
     pthread_mutex_lock(&ts->mutex);
     LIST_INSERT_HEAD(&ts->processes, process, list);
-    pthread_mutex_unlock(&server->mutex);
+    pthread_mutex_unlock(&ts->mutex);
 
     return process;
 }
@@ -375,15 +404,15 @@ void sig_handler(int sig) {
 
     // killing processes
     struct tty_process *process;
+
+    pthread_mutex_lock(&server->mutex);
+
     LIST_FOREACH(process, &server->processes, list) {
-        if(process->running == false)
-            continue;
-
-        lwsl_warn("killing process %d\n", process->pid);
-        kill(process->pid, SIGTERM);
-
+        tty_server_process_stop(process);
         // FIXME: defunct
     }
+
+    pthread_mutex_unlock(&server->mutex);
 
     lws_cancel_service(context);
     lwsl_notice("send ^C to force exit.\n");
@@ -395,11 +424,11 @@ int main(int argc, char **argv) {
 
     server = tty_server_new();
 
-    tty_server_attach_process(server, __argc, __argv);
+    tty_server_process_start(server, __argc, __argv);
 
     int __nargc = 5;
     char *__nargv[5] = {"/usr/bin/python3", "/tmp/maxux-ttyd.py", "--demo", "--argument", "debug"};
-    tty_server_attach_process(server, __nargc, __nargv);
+    tty_server_process_start(server, __nargc, __nargv);
 
     pthread_mutex_init(&server->mutex, NULL);
 
