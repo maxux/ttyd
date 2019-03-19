@@ -3,6 +3,7 @@
 #include <json.h>
 #include <signal.h>
 #include <pthread.h>
+#include <sys/queue.h>
 
 #include "server.h"
 #include "html.h"
@@ -200,6 +201,13 @@ static int routing_get_api_processes(struct callback_response *r) {
         json_object_object_add(process, "state", json_object_new_string(tty_server_process_state(proc)));
         json_object_object_add(process, "id", json_object_new_int64(proc->id));
 
+        if(WIFEXITED(proc->wstatus))
+            if(WEXITSTATUS(proc->wstatus))
+                json_object_object_add(process, "status", json_object_new_int64(WEXITSTATUS(proc->wstatus)));
+
+        if(*proc->error)
+            json_object_object_add(process, "error", json_object_new_string(*proc->error));
+
         json_object_array_add(processes, process);
     }
 
@@ -307,7 +315,7 @@ static int routing_get_api_process_logs(struct callback_response *r) {
         return http_die_response_json_error(r, "missing id");
 
     size_t iid = strtoul(ppid, NULL, 10);
-    verbose("[+] api: requesing process logs: %lu\n", iid);
+    verbose("[+] api: requesting process logs: %lu\n", iid);
 
     // looking up for processes
     struct tty_process *process;
@@ -323,6 +331,29 @@ static int routing_get_api_process_logs(struct callback_response *r) {
     return value;
 }
 
+static int routing_get_api_process_clean(struct callback_response *r) {
+    struct tty_process *proc;
+    struct tty_process *temp;
+
+    verbose("[+] api: requesting cleaning processes\n");
+
+    pthread_mutex_lock(&server->mutex);
+
+    LIST_FOREACH_SAFE(proc, &server->processes, list, temp) {
+        if(proc->state != STOPPED && proc->state != CRASHED)
+            continue;
+
+        printf("[+] api: cleaning id: %lu\n", proc->id);
+
+        pthread_mutex_unlock(&server->mutex);
+        process_remove(proc);
+        pthread_mutex_lock(&server->mutex);
+    }
+
+    pthread_mutex_unlock(&server->mutex);
+
+    return http_die_response_json_ok(r);
+}
 
 //
 // callback
@@ -403,6 +434,8 @@ routing_get:
             if(strcmp(pss->path, "/api/process/logs") == 0)
                 return routing_get_api_process_logs(&r);
 
+            if(strcmp(pss->path, "/api/process/clean") == 0)
+                return routing_get_api_process_clean(&r);
 
             // anything else, not found
             lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);

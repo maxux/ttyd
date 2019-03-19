@@ -199,10 +199,9 @@ void * mainthread_run_command(void *args) {
         printf("[+] tfmux: starting: %s\n", process->argv[0]);
         printf("[+] =============================================\n");
 
-        // FIXME: if process fails, segfault later on pty
-
         if(execvp(process->argv[0], process->argv) < 0) {
-            perror("execvp");
+            *process->error = strerror(errno);
+            warnp("execvp");
             pthread_exit((void *) 1);
         }
 
@@ -238,9 +237,9 @@ void * mainthread_run_command(void *args) {
             pty_len = read(pty, pty_buffer, sizeof(pty_buffer));
 
             if(pty_len < 0) {
-                perror("read");
+                warnp("mainthread_run_command: read");
                 process->running = false;
-                continue;
+                goto try_again;
             }
 
             // keeping logs into our circular buffer
@@ -271,15 +270,31 @@ void * mainthread_run_command(void *args) {
             }
         }
 
+        try_again:
         pthread_mutex_unlock(&server->mutex);
     }
+
+    // locking process
+    pthread_mutex_lock(&process->mutex);
+
+    // fetching information about exit
+    pid_t value = waitpid(process->pid, &process->wstatus, 0);
+    if(value < 0)
+        warnp("mainthread_run_command: waitpid");
+
+    // setting flags
+    process->state = STOPPED;
+
+    if(*process->error)
+        process->state = CRASHED;
+
+    // unlocking process
+    pthread_mutex_unlock(&process->mutex);
 
     pthread_exit((void *) 0);
 }
 
-int
-callback_tty(struct lws *wsi, enum lws_callback_reasons reason,
-             void *user, void *in, size_t len) {
+int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len) {
     struct tty_client *client = (struct tty_client *) user;
     char buf[256];
     size_t n = 0;

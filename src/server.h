@@ -62,6 +62,8 @@ struct tty_process {
     int running;                   // process is running
     char **argv;                   // command with arguments
     char *command;                 // full command line
+    char **error;                  // error message if any
+    int wstatus;                   // process end-of-life status
     struct tty_server *server;     // main server link
     circbuf_t *logs;               // circular buffer for logs
     pthread_mutex_t mutex;
@@ -130,6 +132,7 @@ extern int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void 
 char *tty_server_process_state(struct tty_process *process);
 struct tty_process *tty_server_process_stop(struct tty_process *process);
 struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, char **argv);
+void process_remove(struct tty_process *process);
 
 struct tty_process *process_getby_pid(int pid, int only_running);
 struct tty_process *process_getby_id(size_t id);
@@ -157,4 +160,8 @@ void *warnp(char *str);
     #define debughex(...) ((void)0)
 #endif
 
-
+// extend missing LIST_FOREACH_SAFE
+#define	LIST_FOREACH_SAFE(var, head, field, tvar)			\
+	for ((var) = LIST_FIRST((head));				\
+	    (var) && ((tvar) = LIST_NEXT((var), field), 1);		\
+	    (var) = (tvar))

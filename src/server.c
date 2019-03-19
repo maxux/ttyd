@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 #include <libwebsockets.h>
 #include <json.h>
@@ -274,8 +275,14 @@ struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, ch
     // it's unique for the running instance
     process->id = (size_t) process;
 
+    // shared memory across forks
+    process->error = mmap(NULL, sizeof(char *), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    *process->error = NULL;
+
     process->state = CREATED;
     process->server = server;
+    process->wstatus = 0;
+
     process->argv = xmalloc(sizeof(char *) * (argc + 1));
     for (int i = 0; i < argc; i++) {
         process->argv[i] = strdup(argv[i]);
@@ -312,6 +319,31 @@ struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, ch
     pthread_mutex_unlock(&ts->mutex);
 
     return process;
+}
+
+void process_remove(struct tty_process *process) {
+    // cleaning shared memory
+    munmap(process->error, sizeof(char *));
+
+    pthread_join(process->thread, NULL);
+
+    for(int i = 0; ; i++) {
+        if(process->argv[i] == NULL)
+            break;
+
+        free(process->argv[i]);
+    }
+
+    free(process->argv);
+    free(process->command);
+
+    circular_free(process->logs);
+
+    pthread_mutex_lock(&server->mutex);
+    LIST_REMOVE(process, list);
+    pthread_mutex_unlock(&server->mutex);
+
+    free(process);
 }
 
 struct tty_process *process_getby_pid(int pid, int only_running) {
@@ -421,11 +453,9 @@ int main(int argc, char **argv) {
 
     tty_server_process_start(server, __argc, __argv);
 
-    /*
     int __nargc = 5;
-    char *__nargv[5] = {"/usr/bin/python3", "/tmp/maxux-ttyd.py", "--demo", "--argument", "debug"};
+    char *__nargv[5] = {"/usr/bin/python4", "/tmp/maxux-ttyd.py", "--demo", "--argument", "debug"};
     tty_server_process_start(server, __nargc, __nargv);
-    */
 
     pthread_mutex_init(&server->mutex, NULL);
 
