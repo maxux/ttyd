@@ -5,11 +5,11 @@ customized and rewritten to start multiple process and share their interactivity
 
 # Features
 
-- Built on top of [Libwebsockets][2] with C for speed
+- Built on top of Libwebsockets with C for speed
 - API to control behavior
-- Fully-featured terminal based on [Xterm.js][3] with [CJK][18] and IME support
-- Graphical [ZMODEM][16] integration with [lrzsz][17] support
-- SSL support based on [OpenSSL][4]
+- Fully-featured terminal based on Xterm.js with CJK and IME support
+- Graphical ZMODEM integration with lrzsz support
+- SSL support based on OpenSSL
 - Run any custom command with options
 - Basic authentication support and many other custom options
 
@@ -30,7 +30,7 @@ Documentation will arrives soon.
     make && make install
     ```
 
-    You may also need to compile/install [libwebsockets][2] from source if the `libwebsockets-dev` package is outdated.
+    You may also need to compile/install libwebsockets from source if the `libwebsockets-dev` package is outdated.
 
 # Usage
 
@@ -57,10 +57,6 @@ OPTIONS:
     -v, --version           Print the version and exit
     -h, --help              Print this text and exit
 ```
-
-## Browser Support
-
-Modern browsers, See [Browser Support][15].
 
 ## SSL how-to
 
