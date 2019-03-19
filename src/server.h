@@ -147,8 +147,8 @@ extern int __verbose;
 void *warnp(char *str);
 
 #ifndef RELEASE
-    #define verbose(...) { if(__verbose) { printf(__VA_ARGS__); } }
-    // #define verbose(...) { printf(__VA_ARGS__); }
+    // #define verbose(...) { if(__verbose) { printf(__VA_ARGS__); } }
+    #define verbose(...) { printf(__VA_ARGS__); }
     #define debug(...) { printf(__VA_ARGS__); }
     #define debughex(...) { hexdump(__VA_ARGS__); }
 #else

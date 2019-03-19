@@ -251,7 +251,7 @@ struct tty_process *tty_server_process_stop(struct tty_process *process) {
     if(process->running == false)
         return NULL;
 
-    printf("[+] killing process: %d\n", process->pid);
+    verbose("[+] killing process: %d\n", process->pid);
 
     kill(process->pid, SIGTERM);
 
@@ -421,9 +421,11 @@ int main(int argc, char **argv) {
 
     tty_server_process_start(server, __argc, __argv);
 
+    /*
     int __nargc = 5;
     char *__nargv[5] = {"/usr/bin/python3", "/tmp/maxux-ttyd.py", "--demo", "--argument", "debug"};
     tty_server_process_start(server, __nargc, __nargv);
+    */
 
     pthread_mutex_init(&server->mutex, NULL);
 
