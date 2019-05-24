@@ -1,17 +1,27 @@
-# tfmux - ThreeFold Multiplexer
+# Core X - ThreeFold Multiplexer
 
-tfmux is a fork of [ttyd](https://github.com/tsl0922/ttyd),
-customized and rewritten to start multiple process and share their interactivity over a Web UI.
+Core X (previously tfmux) is a fork of [ttyd](https://github.com/tsl0922/ttyd),
+customized and rewritten to start multiple process and share their interactivity over a web interface.
 
 # Features
 
-- Built on top of Libwebsockets with C for speed
+- Built on top of Libwebsockets
 - API to control behavior
 - Fully-featured terminal based on Xterm.js with CJK and IME support
 - Graphical ZMODEM integration with lrzsz support
 - SSL support based on OpenSSL
 - Run any custom command with options
 - Basic authentication support and many other custom options
+- Multiple process support
+- No threads (async)
+- Start with chroot environment
+
+# Security
+
+In order to use corex as process manager in a container, you can start corex with
+special `--chroot` flags, when ttyd is ready, it will chroot into that directory and you won't have
+access to original directory. With this mechanism, you can start ttyd with all the dependencies needed
+and provide chrooted-process access over webui.
 
 # API
 Documentation will arrives soon.
@@ -19,6 +29,8 @@ Documentation will arrives soon.
 # Building and Installation
 
 ## Install on Linux
+
+WARNING: THIS DOCUMENTATION IS NOT UP-TO-DATE (it will be updated soon)
 
 - Build from source (debian/ubuntu):
 
