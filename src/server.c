@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
+#include <sys/wait.h>
+#include <pty.h>
 
 #include <libwebsockets.h>
 #include <json.h>
@@ -19,7 +21,7 @@
 #define TTYD_VERSION "unknown"
 #endif
 
-void *mainthread_run_command(void *args);
+static int process_init(struct tty_process *process);
 
 volatile bool force_exit = false;
 struct lws_context *context;
@@ -358,7 +360,7 @@ struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, ch
 
     // initialize process like previous thread
     // but syncroniously
-    mainthread_run_command(process);
+    process_init(process);
 
     LIST_INSERT_HEAD(&ts->processes, process, list);
 
@@ -471,23 +473,81 @@ void sig_handler(int sig) {
     verbose("[+] waiting, you can force with another SIGINT\n");
 }
 
-void *process_monitor(struct tty_process *process) {
-    fd_set des_set;
+static int process_init(struct tty_process *process) {
+    struct tty_server *server = process->server;
+    pid_t pid;
+    int pty = 0;
 
-    if(!process->running) {
-        printf("NOT RUNNING\n");
-        return NULL;
+    if((pid = forkpty(&pty, NULL, NULL, NULL)) < 0) {
+        warnp("forkpty");
+        return 1;
     }
 
-    FD_ZERO (&des_set);
-    FD_SET (process->pty, &des_set);
-    struct timeval tv = { 0, 50000 };
+    process->state = STARTING;
 
-    int ret = select(process->pty + 1, &des_set, NULL, NULL, &tv);
-    if (ret == 0) return NULL;
-    if (ret < 0) return NULL;
+    if(pid == 0) {
+        if(setenv("TERM", server->terminal_type, true) < 0) {
+            perror("setenv");
+            return 1;
+        }
 
-    if (FD_ISSET (process->pty, &des_set)) {
+        printf("[+] corex: ========================================\n");
+        printf("[+] corex: initializing subprocess\n");
+        printf("[+] corex: starting: %s\n", process->argv[0]);
+        printf("[+] corex: ========================================\n");
+
+        if(execvp(process->argv[0], process->argv) < 0) {
+            *process->error = strerror(errno);
+            warnp("execvp");
+        }
+
+        return 1;
+    }
+
+    verbose("[+] subprocess: started process, pid: %d, pty: %d\n", pid, pty);
+    process->pid = pid;
+    process->pty = pty;
+    process->running = true;
+    process->state = RUNNING;
+
+    return 0;
+}
+
+int process_monitor_stopped(struct tty_process *process) {
+    pid_t value = waitpid(process->pid, &process->wstatus, 0);
+    if(value < 0)
+        warnp("process_monitor_stopped: waitpid");
+
+    process->state = STOPPED;
+
+    if(*process->error)
+        process->state = CRASHED;
+
+    return 0;
+}
+
+int process_monitor(struct tty_process *process) {
+    fd_set des_set;
+    struct timeval tv = { 0, 10000 };
+    int ret;
+
+    // process not running
+    if(!process->running) {
+        // if state is still running, refreshing state
+        if(process->state == RUNNING)
+            return process_monitor_stopped(process);
+
+        // nothing to do
+        return -1;
+    }
+
+    FD_ZERO(&des_set);
+    FD_SET(process->pty, &des_set);
+
+    if((ret = select(process->pty + 1, &des_set, NULL, NULL, &tv)) <= 0)
+        return 1;
+
+    if(FD_ISSET (process->pty, &des_set)) {
         char pty_buffer[BUF_SIZE];
         ssize_t pty_len;
 
@@ -495,9 +555,9 @@ void *process_monitor(struct tty_process *process) {
         pty_len = read(process->pty, pty_buffer, sizeof(pty_buffer));
 
         if(pty_len < 0) {
-            warnp("mainthread_run_command: read");
+            warnp("process_monitor: pty: read");
             process->running = false;
-            return NULL;
+            return 1;
         }
 
         // keeping logs into our circular buffer
@@ -505,11 +565,8 @@ void *process_monitor(struct tty_process *process) {
 
         struct tty_client *client;
         LIST_FOREACH(client, &server->clients, list) {
-            // printf("trying sending to client (%d bytes)\n", pty_len);
-
-            if(!client->running || client->pid != process->pid) {
+            if(!client->running || client->pid != process->pid)
                 continue;
-            }
 
             memcpy(client->pty_buffer + LWS_PRE + 1, pty_buffer, pty_len);
             client->pty_len = pty_len;
@@ -517,25 +574,17 @@ void *process_monitor(struct tty_process *process) {
 
             // printf("running %d, state: %d, request callback\n", client->running, client->state);
             lws_callback_on_writable(client->wsi);
-
-            printf("while...\n");
-            /*
-            while(client->state != STATE_DONE) {
-                // delay write
-                lws_callback_on_writable(client->wsi);
-            }
-            */
         }
     }
 
-    return NULL;
+    return 0;
 }
 
 void process_watch() {
     struct tty_process *process;
 
     LIST_FOREACH(process, &server->processes, list) {
-        printf("watching process: %s\n", process->argv[0]);
+        // printf("[+] process_watch: watching process: %s\n", process->argv[0]);
         process_monitor(process);
     }
 }

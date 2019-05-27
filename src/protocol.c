@@ -9,15 +9,6 @@
 #include <sys/queue.h>
 #include <sys/select.h>
 #include <sys/types.h>
-#include <sys/wait.h>
-
-#if defined(__OpenBSD__) || defined(__APPLE__)
-#include <util.h>
-#elif defined(__FreeBSD__)
-#include <libutil.h>
-#else
-#include <pty.h>
-#endif
 
 #include <libwebsockets.h>
 #include <json.h>
@@ -161,133 +152,6 @@ cleanup:
     tty_client_remove(client);
 }
 
-void *mainthread_run_command(void *args) {
-    fd_set des_set;
-    int pty = 0;
-    pid_t pid;
-
-    struct tty_process *process = (struct tty_process *) args;
-    struct tty_server *server = process->server;
-
-    // let's do our job
-
-    if((pid = forkpty(&pty, NULL, NULL, NULL)) < 0)
-        return warnp("forkpty");
-
-    process->state = STARTING;
-
-    if(pid == 0) {
-        if(setenv("TERM", server->terminal_type, true) < 0) {
-            perror("setenv");
-            return NULL;
-        }
-
-        printf("[+] =============================================\n");
-        printf("[+] tfmux: initializing subprocess\n");
-        printf("[+] tfmux: starting: %s\n", process->argv[0]);
-        printf("[+] =============================================\n");
-
-        if(execvp(process->argv[0], process->argv) < 0) {
-            *process->error = strerror(errno);
-            warnp("execvp");
-        }
-
-        return NULL;
-    }
-
-    verbose("[+] subprocess: started process, pid: %d, pty: %d\n", pid, pty);
-    process->pid = pid;
-    process->pty = pty;
-    process->running = true;
-    process->state = RUNNING;
-
-    return NULL;
-
-    //
-    // --- EARLY UPDATE ---
-    //
-
-    // we are ready, let notify this
-    // pthread_cond_signal(&process->notifier);
-    // pthread_mutex_unlock(&process->mutex);
-
-    while(process->running) {
-        FD_ZERO (&des_set);
-        FD_SET (pty, &des_set);
-        struct timeval tv = { 1, 0 };
-
-        int ret = select(pty + 1, &des_set, NULL, NULL, &tv);
-        if (ret == 0) continue;
-        if (ret < 0) break;
-
-        if (FD_ISSET (pty, &des_set)) {
-            // pthread_mutex_lock(&server->mutex);
-
-            char pty_buffer[BUF_SIZE];
-            ssize_t pty_len;
-
-            memset(pty_buffer, 0, sizeof(pty_buffer));
-            pty_len = read(pty, pty_buffer, sizeof(pty_buffer));
-
-            if(pty_len < 0) {
-                warnp("mainthread_run_command: read");
-                process->running = false;
-                goto try_again;
-            }
-
-            // keeping logs into our circular buffer
-            circular_append(process->logs, pty_buffer, pty_len);
-
-            struct tty_client *client;
-            LIST_FOREACH(client, &server->clients, list) {
-                // printf("trying sending to client (%d bytes)\n", pty_len);
-                // pthread_mutex_lock(&client->mutex);
-
-                if(!client->running || client->pid != process->pid) {
-                    // pthread_mutex_unlock(&client->mutex);
-                    continue;
-                }
-
-                memcpy(client->pty_buffer + LWS_PRE + 1, pty_buffer, pty_len);
-                client->pty_len = pty_len;
-                client->state = STATE_READY;
-
-                // printf("running %d, state: %d, request callback\n", client->running, client->state);
-                lws_callback_on_writable(client->wsi);
-                // pthread_mutex_unlock(&client->mutex);
-
-                while(client->state != STATE_DONE) {
-                    // delay write
-                    lws_callback_on_writable(client->wsi);
-                }
-            }
-        }
-
-        try_again:
-         (void) 1; // noop
-        // pthread_mutex_unlock(&server->mutex);
-    }
-
-    // locking process
-    // pthread_mutex_lock(&process->mutex);
-
-    // fetching information about exit
-    pid_t value = waitpid(process->pid, &process->wstatus, 0);
-    if(value < 0)
-        warnp("mainthread_run_command: waitpid");
-
-    // setting flags
-    process->state = STOPPED;
-
-    if(*process->error)
-        process->state = CRASHED;
-
-    // unlocking process
-    // pthread_mutex_unlock(&process->mutex);
-
-    // pthread_exit((void *) 0);
-}
-
 int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len) {
     struct tty_client *client = (struct tty_client *) user;
     char buf[256];
@@ -370,6 +234,7 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
             if (!client->initialized) {
+                printf("[+] callback: client not initialized\n");
                 if (client->initial_cmd_index == sizeof(initial_cmds)) {
                     client->initialized = true;
                     lws_callback_on_writable(wsi);
@@ -387,29 +252,33 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
             }
 
             if (client->state != STATE_READY) {
-                printf("not ready\n");
+                printf("[+] callback: client state not ready\n");
                 break;
             }
 
             // read error or client exited, close connection
             if (client->pty_len <= 0) {
-                lws_close_reason(wsi,
-                                 client->pty_len == 0 ? LWS_CLOSE_STATUS_NORMAL
-                                                       : LWS_CLOSE_STATUS_UNEXPECTED_CONDITION,
-                                 NULL, 0);
+                int status = LWS_CLOSE_STATUS_NORMAL;
+
+                if(client->pty_len != 0)
+                    status = LWS_CLOSE_STATUS_UNEXPECTED_CONDITION;
+
+                lws_close_reason(wsi, status, NULL, 0);
+
                 return -1;
             }
 
             client->pty_buffer[LWS_PRE] = OUTPUT;
             n = (size_t) (client->pty_len + 1);
-            if (lws_write(wsi, (unsigned char *) client->pty_buffer + LWS_PRE, n, LWS_WRITE_BINARY) < n) {
+
+            if(lws_write(wsi, (unsigned char *) client->pty_buffer + LWS_PRE, n, LWS_WRITE_BINARY) < n)
                 fprintf(stderr, "[-] callback: tty: writable: could not write data to ws\n");
-            }
 
             client->state = STATE_DONE;
             break;
 
         case LWS_CALLBACK_RECEIVE:
+            printf("[+] callback: receive data from client\n");
             if (client->buffer == NULL) {
                 client->buffer = xmalloc(len);
                 client->len = len;
@@ -435,16 +304,23 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
 
             switch (command) {
                 case INPUT:
-                    if (client->pty == 0)
+                    // pty not initialized
+                    if(client->pty == 0)
                         break;
-                    if (server->readonly)
+
+                    // read-only server mode
+                    if(server->readonly)
                         return 0;
-                    if (write(client->pty, client->buffer + 1, client->len - 1) == -1) {
+
+                    printf("[+] callback: writing to target pty\n");
+
+                    if(write(client->pty, client->buffer + 1, client->len - 1) == -1) {
                         warnp("callback: tty: write input to pty failed");
                         lws_close_reason(wsi, LWS_CLOSE_STATUS_UNEXPECTED_CONDITION, NULL, 0);
                         return -1;
                     }
                     break;
+
                 case RESIZE_TERMINAL:
                     if (parse_window_size(client->buffer + 1, &client->size) && client->pty > 0) {
                         if (ioctl(client->pty, TIOCSWINSZ, &client->size) == -1) {
@@ -471,17 +347,7 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
                         }
                     }
 
-                    /*
-                    struct tty_process *process = LIST_FIRST(&server->processes);
-
-                    // no client thread, just flagging it as running
-                    // attaching pty to redirect input
                     client->running = true;
-                    client->pty = process->pty;
-                    */
-
-                    client->running = true;
-
                     break;
 
                 default:
@@ -489,7 +355,7 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
                     break;
             }
 
-            if (client->buffer != NULL) {
+            if(client->buffer != NULL) {
                 free(client->buffer);
                 client->buffer = NULL;
             }
