@@ -18,31 +18,39 @@ customized and rewritten to start multiple process and share their interactivity
 
 # Security
 
-In order to use corex as process manager in a container, you can start corex with
-special `--chroot` flags, when ttyd is ready, it will chroot into that directory and you won't have
-access to original directory. With this mechanism, you can start ttyd with all the dependencies needed
+In order to use `corex` as process manager in a container, you can start `corex` with
+special `--chroot` flags, when `corex` is ready, it will chroot into that directory and you won't have
+access to original directory. With this mechanism, you can start `corex` with all the dependencies needed
 and provide chrooted-process access over webui.
 
 # API
-Documentation will arrives soon.
+Please check the python client (for now). It's quite straightforward.
 
 # Building and Installation
 
-## Install on Linux
+## Build on Linux
 
-WARNING: THIS DOCUMENTATION IS NOT UP-TO-DATE (it will be updated soon)
+### Dependencies for Debian based
+```bash
+apt-get install cmake g++ pkg-config git libwebsockets-dev libjson-c-dev libssl-dev
+```
 
-- Build from source (debian/ubuntu):
+You may also need to compile/install libwebsockets from source if the `libwebsockets-dev` package is outdated
 
-    ```bash
-    sudo apt-get install cmake g++ pkg-config git vim-common libwebsockets-dev libjson-c-dev libssl-dev
-    git clone https://github.com/threefoldtech/tfmux
-    cd ttyd && mkdir build && cd build
-    cmake ..
-    make && make install
-    ```
+### Dependencies for Gentoo based
+```bash
+emerge dev-util/cmake dev-vcs/git net-libs/libwebsockets dev-libs/json-c dev-libs/openssl
+```
 
-    You may also need to compile/install libwebsockets from source if the `libwebsockets-dev` package is outdated.
+### Build instruction
+```
+git clone https://github.com/threefoldtech/corex
+cd corex && mkdir build && cd build
+cmake ..
+make
+```
+
+You can now use `./corex`
 
 # Usage
 
@@ -55,22 +63,34 @@ OPTIONS:
     -c, --credential        Credential for Basic Authentication (format: username:password)
     -u, --uid               User id to run with
     -g, --gid               Group id to run with
+    -s, --signal            Signal to send to the command when exit it (default: 1, SIGHUP)
     -r, --reconnect         Time to reconnect for the client in seconds (default: 10)
     -R, --readonly          Do not allow clients to write to the TTY
     -t, --client-option     Send option to client (format: key=value), repeat to add more options
-    -T, --terminal-type     Terminal type to report, default: xterm-256color
     -O, --check-origin      Do not allow websocket connection from different origin
+    -m, --max-clients       Maximum clients to support (default: 0, no limit)
+    -o, --once              Accept only one client and exit on disconnection
     -I, --index             Custom index.html path
     -6, --ipv6              Enable IPv6 support
     -S, --ssl               Enable SSL
     -C, --ssl-cert          SSL certificate file path
     -K, --ssl-key           SSL key file path
     -A, --ssl-ca            SSL CA file path for client certificate verification
+    -d, --debug             Set log level (default: 7)
+    -x, --chroot            Isolate root filesystem
     -v, --version           Print the version and exit
-    -h, --help              Print this text and exit
 ```
 
-## SSL how-to
+## Howto: container based process manager
+
+To use `corex` as process manager (PID 1) inside a container, you need to run `corex` inside a new
+namespace (using containerd/runc for example), with all binary dependencies available,
+then run `corex --chroot /rootfs` where `rootfs` is the expected root filesystem of the container.
+
+You can then call the API to start a process, the console will be available over the webui and
+management available over the API.
+
+## Howto: SSL
 
 Generate SSL CA and self signed server/client certificates:
 
@@ -90,10 +110,10 @@ openssl pkcs12 -export -clcerts -in client.crt -inkey client.key -out client.p12
 openssl pkcs12 -in client.p12 -out client.pem -clcerts
 ```
 
-Then start ttyd:
+Then start corex:
 
 ```bash
-ttyd --ssl --ssl-cert server.crt --ssl-key server.key --ssl-ca ca.crt bash
+corex --ssl --ssl-cert server.crt --ssl-key server.key --ssl-ca ca.crt bash
 ```
 You may want to test the client certificate verification with `curl`:
 
