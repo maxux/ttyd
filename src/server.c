@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/mount.h>
 
 #include <libwebsockets.h>
 #include <json.h>
@@ -63,14 +64,15 @@ static const struct option options[] = {
         {"max-clients",  required_argument, NULL, 'm'},
         {"once",         no_argument,       NULL, 'o'},
         {"debug",        required_argument, NULL, 'd'},
+        {"chroot",       required_argument, NULL, 'x'},
         {"version",      no_argument,       NULL, 'v'},
         {"help",         no_argument,       NULL, 'h'},
         {NULL, 0, 0, 0}
 };
-static const char *opt_string = "p:i:c:u:g:s:r:I:6aSC:K:A:Rt:T:Om:od:vh";
+static const char *opt_string = "p:i:c:u:g:s:r:I:6aSC:K:A:Rt:T:Om:od:vx:h";
 
 void print_help() {
-    fprintf(stderr, "ttyd is a tool for sharing terminal over the web\n\n"
+    fprintf(stderr, "corex is a console multiplexer over web interface, based on ttyd\n\n"
                     "USAGE:\n"
                     "    ttyd [options] <command> [<arguments...>]\n\n"
                     "VERSION:\n"
@@ -95,9 +97,10 @@ void print_help() {
                     "    -K, --ssl-key           SSL key file path\n"
                     "    -A, --ssl-ca            SSL CA file path for client certificate verification\n"
                     "    -d, --debug             Set log level (default: 7)\n"
+                    "    -x, --chroot            Isolate root filesystem\n"
                     "    -v, --version           Print the version and exit\n"
                     "    -h, --help              Print this text and exit\n\n"
-                    "Visit https://github.com/tsl0922/ttyd to get more information and report bugs.\n",
+                    "Visit https://github.com/threefoldtech/corex to get more information and report bugs.\n",
             TTYD_VERSION
     );
 }
@@ -105,6 +108,16 @@ void print_help() {
 void *warnp(char *str) {
     fprintf(stderr, "[-] %s: %s\n", str, strerror(errno));
     return NULL;
+}
+
+void *warnpf(char *fct, char *str) {
+    fprintf(stderr, "[-] %s: %s: %s\n", fct, str, strerror(errno));
+    return NULL;
+}
+
+void diep(char *str) {
+    warnp(str);
+    exit(EXIT_FAILURE);
 }
 
 //
@@ -220,6 +233,49 @@ buffer_t *circular_get(circbuf_t *circular, size_t length) {
     return response;
 }
 
+//
+// namespace isolation
+//
+void lmount(char *type, char *destination, char *opts) {
+    if(mkdir(destination, 0755) < 0)
+        warnpf("mkdir", destination);
+
+    if(umount(destination) < 0)
+        warnpf("umount", destination);
+
+    if(mount(type, destination, type, 0, opts) < 0)
+        warnpf("mount", destination);
+}
+
+int isolate(char *root) {
+    verbose("[+] changing root filesystem\n");
+    if(chroot(root) < 0)
+        diep("chroot");
+
+    printf("[+] populating pseudo filesystems\n");
+
+    // /dev
+    lmount("devtmpfs", "/dev", "");
+    lmount("devpts", "/dev/pts", "");
+    lmount("tmpfs", "/dev/shm", "size=64M");
+    lmount("mqueue", "/dev/mqueue", "");
+
+    chmod("/dev/ptmx", 0777);
+    chmod("/dev/pts/ptmx", 0777);
+
+    // /proc
+    lmount("proc", "/proc", "");
+
+    // /sys
+    lmount("sysfs", "/sys", "");
+    lmount("cgroup", "/sys/fs/cgroup", "");
+
+    return 0;
+}
+
+//
+// tty server
+//
 struct tty_server *tty_server_new() {
     struct tty_server *ts;
 
@@ -514,6 +570,7 @@ int main(int argc, char **argv) {
     info.extensions = extensions;
 
     int debug_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
+    char *chrooting = NULL;
     char iface[128] = "";
     bool ssl = false;
     char cert_path[1024] = "";
@@ -629,6 +686,9 @@ int main(int argc, char **argv) {
                 strncpy(server->terminal_type, optarg, sizeof(server->terminal_type) - 1);
                 server->terminal_type[sizeof(server->terminal_type) - 1] = '\0';
                 break;
+            case 'x':
+                chrooting = optarg;
+                break;
             case '?':
                 break;
             case 't':
@@ -742,6 +802,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[-] libwebsockets init failed\n");
         return 1;
     }
+
+    if(chrooting)
+        isolate(chrooting);
 
     // libwebsockets main loop
     while(!force_exit) {

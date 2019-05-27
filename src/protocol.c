@@ -407,8 +407,6 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
             }
 
             client->state = STATE_DONE;
-
-            pthread_mutex_unlock(&client->mutex);
             break;
 
         case LWS_CALLBACK_RECEIVE:
