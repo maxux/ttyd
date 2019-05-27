@@ -239,11 +239,17 @@ buffer_t *circular_get(circbuf_t *circular, size_t length) {
 // namespace isolation
 //
 void lmount(char *type, char *destination, char *opts) {
-    if(mkdir(destination, 0755) < 0)
-        warnpf("mkdir", destination);
+    if(mkdir(destination, 0755) < 0) {
+        // ignore already existing error
+        if(errno != EEXIST)
+            warnpf("mkdir", destination);
+    }
 
-    if(umount(destination) < 0)
-        warnpf("umount", destination);
+    if(umount(destination) < 0) {
+        // ignore when destination is not a mount point
+        if(errno != EINVAL)
+            warnpf("umount", destination);
+    }
 
     if(mount(type, destination, type, 0, opts) < 0)
         warnpf("mount", destination);
