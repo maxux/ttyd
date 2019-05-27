@@ -191,8 +191,6 @@ static int routing_get_api_processes(struct callback_response *r) {
 
     struct tty_process *proc;
 
-    pthread_mutex_lock(&server->mutex);
-
     LIST_FOREACH(proc, &server->processes, list) {
         struct json_object *process = json_object_new_object();
 
@@ -210,8 +208,6 @@ static int routing_get_api_processes(struct callback_response *r) {
 
         json_object_array_add(processes, process);
     }
-
-    pthread_mutex_unlock(&server->mutex);
 
     json_object_object_add(root, "processes", processes);
 
@@ -261,18 +257,10 @@ static int routing_get_api_process_start(struct callback_response *r) {
     verbose("[+] api: starting process: %s [with %d args]\n", argv[0], argc - 1);
     struct tty_process *proc = tty_server_process_start(server, argc, argv);
 
-    // waiting for process to be ready
-    pthread_mutex_lock(&proc->mutex);
-
-    while(proc->state == CREATED || proc->state == STARTING)
-        pthread_cond_wait(&proc->notifier, &proc->mutex);
-
     struct json_object *root = json_object_new_object();
     json_object_object_add(root, "status", json_object_new_string("success"));
     json_object_object_add(root, "pid", json_object_new_int64(proc->pid));
     json_object_object_add(root, "id", json_object_new_int64(proc->id));
-
-    pthread_mutex_unlock(&proc->mutex);
 
     char *jsondumps = strdup(json_object_to_json_string(root));
     json_object_put(root);
@@ -337,20 +325,13 @@ static int routing_get_api_process_clean(struct callback_response *r) {
 
     verbose("[+] api: requesting cleaning processes\n");
 
-    pthread_mutex_lock(&server->mutex);
-
     LIST_FOREACH_SAFE(proc, &server->processes, list, temp) {
         if(proc->state != STOPPED && proc->state != CRASHED)
             continue;
 
         printf("[+] api: cleaning id: %lu\n", proc->id);
-
-        pthread_mutex_unlock(&server->mutex);
         process_remove(proc);
-        pthread_mutex_lock(&server->mutex);
     }
-
-    pthread_mutex_unlock(&server->mutex);
 
     return http_die_response_json_ok(r);
 }

@@ -4,7 +4,6 @@
 #include <string.h>
 #include <errno.h>
 #include <getopt.h>
-#include <pthread.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -241,10 +240,7 @@ struct tty_server *tty_server_new() {
 }
 
 char *tty_server_process_state(struct tty_process *process) {
-    pthread_mutex_lock(&process->mutex);
     char *state = __process_states[process->state];
-    pthread_mutex_unlock(&process->mutex);
-
     return state;
 }
 
@@ -256,10 +252,8 @@ struct tty_process *tty_server_process_stop(struct tty_process *process) {
 
     kill(process->pid, SIGTERM);
 
-    pthread_mutex_lock(&process->mutex);
     process->running = false;
     process->state = STOPPING;
-    pthread_mutex_unlock(&process->mutex);
 
     return process;
 }
@@ -306,17 +300,11 @@ struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, ch
 
     process->logs = circular_new(LOGS_SIZE);
 
-    // initial lock, will unlock when process is ready
-    pthread_mutex_init(&process->mutex, NULL);
-    pthread_cond_init(&process->notifier, NULL);
+    // initialize process like previous thread
+    // but syncroniously
+    mainthread_run_command(process);
 
-    // starting the process
-    if(pthread_create(&process->thread, NULL, mainthread_run_command, process))
-        return warnp("pthread_create");
-
-    pthread_mutex_lock(&ts->mutex);
     LIST_INSERT_HEAD(&ts->processes, process, list);
-    pthread_mutex_unlock(&ts->mutex);
 
     return process;
 }
@@ -324,8 +312,6 @@ struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, ch
 void process_remove(struct tty_process *process) {
     // cleaning shared memory
     munmap(process->error, sizeof(char *));
-
-    pthread_join(process->thread, NULL);
 
     for(int i = 0; ; i++) {
         if(process->argv[i] == NULL)
@@ -339,18 +325,13 @@ void process_remove(struct tty_process *process) {
 
     circular_free(process->logs);
 
-    pthread_mutex_lock(&server->mutex);
     LIST_REMOVE(process, list);
-    pthread_mutex_unlock(&server->mutex);
-
     free(process);
 }
 
 struct tty_process *process_getby_pid(int pid, int only_running) {
     struct tty_process *process;
     struct tty_process *found = NULL;
-
-    pthread_mutex_lock(&server->mutex);
 
     LIST_FOREACH(process, &server->processes, list) {
         if(process->running == false && only_running == 1)
@@ -362,8 +343,6 @@ struct tty_process *process_getby_pid(int pid, int only_running) {
         }
     }
 
-    pthread_mutex_unlock(&server->mutex);
-
     return found;
 }
 
@@ -371,16 +350,12 @@ struct tty_process *process_getby_id(size_t id) {
     struct tty_process *process;
     struct tty_process *found = NULL;
 
-    pthread_mutex_lock(&server->mutex);
-
     LIST_FOREACH(process, &server->processes, list) {
         if(process->id == id) {
             found = process;
             break;
         }
     }
-
-    pthread_mutex_unlock(&server->mutex);
 
     return found;
 }
@@ -416,7 +391,6 @@ void tty_server_free(struct tty_server *ts) {
         }
     }
 
-    pthread_mutex_destroy(&ts->mutex);
     free(ts);
 }
 
@@ -432,32 +406,99 @@ void sig_handler(int sig) {
     // killing processes
     struct tty_process *process;
 
-    pthread_mutex_lock(&server->mutex);
-
     LIST_FOREACH(process, &server->processes, list) {
         tty_server_process_stop(process);
         // FIXME: defunct
     }
 
-    pthread_mutex_unlock(&server->mutex);
-
     lws_cancel_service(context);
     verbose("[+] waiting, you can force with another SIGINT\n");
 }
 
+void *process_monitor(struct tty_process *process) {
+    fd_set des_set;
+
+    if(!process->running) {
+        printf("NOT RUNNING\n");
+        return NULL;
+    }
+
+    FD_ZERO (&des_set);
+    FD_SET (process->pty, &des_set);
+    struct timeval tv = { 0, 50000 };
+
+    int ret = select(process->pty + 1, &des_set, NULL, NULL, &tv);
+    if (ret == 0) return NULL;
+    if (ret < 0) return NULL;
+
+    if (FD_ISSET (process->pty, &des_set)) {
+        char pty_buffer[BUF_SIZE];
+        ssize_t pty_len;
+
+        memset(pty_buffer, 0, sizeof(pty_buffer));
+        pty_len = read(process->pty, pty_buffer, sizeof(pty_buffer));
+
+        if(pty_len < 0) {
+            warnp("mainthread_run_command: read");
+            process->running = false;
+            return NULL;
+        }
+
+        // keeping logs into our circular buffer
+        circular_append(process->logs, pty_buffer, pty_len);
+
+        struct tty_client *client;
+        LIST_FOREACH(client, &server->clients, list) {
+            // printf("trying sending to client (%d bytes)\n", pty_len);
+
+            if(!client->running || client->pid != process->pid) {
+                continue;
+            }
+
+            memcpy(client->pty_buffer + LWS_PRE + 1, pty_buffer, pty_len);
+            client->pty_len = pty_len;
+            client->state = STATE_READY;
+
+            // printf("running %d, state: %d, request callback\n", client->running, client->state);
+            lws_callback_on_writable(client->wsi);
+
+            printf("while...\n");
+            /*
+            while(client->state != STATE_DONE) {
+                // delay write
+                lws_callback_on_writable(client->wsi);
+            }
+            */
+        }
+    }
+
+    return NULL;
+}
+
+void process_watch() {
+    struct tty_process *process;
+
+    LIST_FOREACH(process, &server->processes, list) {
+        printf("watching process: %s\n", process->argv[0]);
+        process_monitor(process);
+    }
+}
+
 int main(int argc, char **argv) {
+    /*
     int __argc = 1;
     char *__argv[1] = {"/bin/bash"};
+    */
 
     server = tty_server_new();
 
+    /*
     tty_server_process_start(server, __argc, __argv);
 
     int __nargc = 5;
     char *__nargv[5] = {"/usr/bin/python4", "/tmp/maxux-ttyd.py", "--demo", "--argument", "debug"};
     tty_server_process_start(server, __nargc, __nargv);
-
-    pthread_mutex_init(&server->mutex, NULL);
+    */
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
@@ -671,6 +712,7 @@ int main(int argc, char **argv) {
     }
 
     verbose("[+] initializing tfmux %s (libwebsockets %s)\n", TTYD_VERSION, LWS_LIBRARY_VERSION);
+    verbose("[+] listening on port: %d\n", info.port);
     verbose("[+] tty configuration:\n");
 
     if(server->credential != NULL)
@@ -704,6 +746,7 @@ int main(int argc, char **argv) {
     // libwebsockets main loop
     while(!force_exit) {
         lws_service(context, 10);
+        process_watch();
     }
 
     lws_context_destroy(context);

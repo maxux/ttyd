@@ -55,7 +55,6 @@ typedef enum tty_process_state {
 } tty_process_state;
 
 struct tty_process {
-    pthread_t thread;              // main fork tread
     size_t id;                     // internal id representation
     int pid;                       // child process id
     int pty;                       // pty file descriptor
@@ -66,8 +65,6 @@ struct tty_process {
     int wstatus;                   // process end-of-life status
     struct tty_server *server;     // main server link
     circbuf_t *logs;               // circular buffer for logs
-    pthread_mutex_t mutex;
-    pthread_cond_t notifier;
     tty_process_state state;       // process state
 
     LIST_ENTRY(tty_process) list;
@@ -92,9 +89,6 @@ struct tty_client {
     enum pty_state state;
     char pty_buffer[LWS_PRE + 1 + BUF_SIZE];
     ssize_t pty_len;
-    pthread_t thread;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
 
     LIST_ENTRY(tty_client) list;
 };
@@ -123,7 +117,6 @@ struct tty_server {
     bool once;                                 // whether accept only one client and exit on disconnection
     char socket_path[255];                     // UNIX domain socket path
     char terminal_type[30];                    // terminal type to report
-    pthread_mutex_t mutex;
 };
 
 extern int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);

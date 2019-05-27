@@ -10,7 +10,6 @@
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <pthread.h>
 
 #if defined(__OpenBSD__) || defined(__APPLE__)
 #include <util.h>
@@ -89,8 +88,7 @@ bool parse_window_size(const char *json, struct winsize *size) {
     return true;
 }
 
-bool
-check_host_origin(struct lws *wsi) {
+bool check_host_origin(struct lws *wsi) {
     int origin_length = lws_hdr_total_length(wsi, WSI_TOKEN_ORIGIN);
     char buf[origin_length + 1];
     memset(buf, 0, sizeof(buf));
@@ -119,10 +117,9 @@ check_host_origin(struct lws *wsi) {
     return len > 0 && strcasecmp(buf, host_buf) == 0;
 }
 
-void
-tty_client_remove(struct tty_client *client) {
-    pthread_mutex_lock(&server->mutex);
+void tty_client_remove(struct tty_client *client) {
     struct tty_client *iterator;
+
     LIST_FOREACH(iterator, &server->clients, list) {
         if (iterator == client) {
             LIST_REMOVE(iterator, list);
@@ -130,21 +127,15 @@ tty_client_remove(struct tty_client *client) {
             break;
         }
     }
-    pthread_mutex_unlock(&server->mutex);
 }
 
-void
-tty_client_destroy(struct tty_client *client) {
+void tty_client_destroy(struct tty_client *client) {
     if (!client->running || client->pid <= 0)
         goto cleanup;
 
     client->running = false;
 
-    pthread_mutex_lock(&client->mutex);
     client->state = STATE_DONE;
-    pthread_cond_signal(&client->cond);
-    pthread_mutex_unlock(&client->mutex);
-
 
     // do not kill process when client dies
 
@@ -166,13 +157,11 @@ cleanup:
     if (client->buffer != NULL)
         free(client->buffer);
 
-    pthread_mutex_destroy(&client->mutex);
-
     // remove from client list
     tty_client_remove(client);
 }
 
-void * mainthread_run_command(void *args) {
+void *mainthread_run_command(void *args) {
     fd_set des_set;
     int pty = 0;
     pid_t pid;
@@ -181,7 +170,6 @@ void * mainthread_run_command(void *args) {
     struct tty_server *server = process->server;
 
     // let's do our job
-    pthread_mutex_lock(&process->mutex);
 
     if((pid = forkpty(&pty, NULL, NULL, NULL)) < 0)
         return warnp("forkpty");
@@ -191,7 +179,7 @@ void * mainthread_run_command(void *args) {
     if(pid == 0) {
         if(setenv("TERM", server->terminal_type, true) < 0) {
             perror("setenv");
-            pthread_exit((void *) 1);
+            return NULL;
         }
 
         printf("[+] =============================================\n");
@@ -202,7 +190,6 @@ void * mainthread_run_command(void *args) {
         if(execvp(process->argv[0], process->argv) < 0) {
             *process->error = strerror(errno);
             warnp("execvp");
-            pthread_exit((void *) 1);
         }
 
         return NULL;
@@ -214,9 +201,15 @@ void * mainthread_run_command(void *args) {
     process->running = true;
     process->state = RUNNING;
 
+    return NULL;
+
+    //
+    // --- EARLY UPDATE ---
+    //
+
     // we are ready, let notify this
-    pthread_cond_signal(&process->notifier);
-    pthread_mutex_unlock(&process->mutex);
+    // pthread_cond_signal(&process->notifier);
+    // pthread_mutex_unlock(&process->mutex);
 
     while(process->running) {
         FD_ZERO (&des_set);
@@ -228,7 +221,7 @@ void * mainthread_run_command(void *args) {
         if (ret < 0) break;
 
         if (FD_ISSET (pty, &des_set)) {
-            pthread_mutex_lock(&server->mutex);
+            // pthread_mutex_lock(&server->mutex);
 
             char pty_buffer[BUF_SIZE];
             ssize_t pty_len;
@@ -248,10 +241,10 @@ void * mainthread_run_command(void *args) {
             struct tty_client *client;
             LIST_FOREACH(client, &server->clients, list) {
                 // printf("trying sending to client (%d bytes)\n", pty_len);
-                pthread_mutex_lock(&client->mutex);
+                // pthread_mutex_lock(&client->mutex);
 
                 if(!client->running || client->pid != process->pid) {
-                    pthread_mutex_unlock(&client->mutex);
+                    // pthread_mutex_unlock(&client->mutex);
                     continue;
                 }
 
@@ -261,7 +254,7 @@ void * mainthread_run_command(void *args) {
 
                 // printf("running %d, state: %d, request callback\n", client->running, client->state);
                 lws_callback_on_writable(client->wsi);
-                pthread_mutex_unlock(&client->mutex);
+                // pthread_mutex_unlock(&client->mutex);
 
                 while(client->state != STATE_DONE) {
                     // delay write
@@ -271,11 +264,12 @@ void * mainthread_run_command(void *args) {
         }
 
         try_again:
-        pthread_mutex_unlock(&server->mutex);
+         (void) 1; // noop
+        // pthread_mutex_unlock(&server->mutex);
     }
 
     // locking process
-    pthread_mutex_lock(&process->mutex);
+    // pthread_mutex_lock(&process->mutex);
 
     // fetching information about exit
     pid_t value = waitpid(process->pid, &process->wstatus, 0);
@@ -289,9 +283,9 @@ void * mainthread_run_command(void *args) {
         process->state = CRASHED;
 
     // unlocking process
-    pthread_mutex_unlock(&process->mutex);
+    // pthread_mutex_unlock(&process->mutex);
 
-    pthread_exit((void *) 0);
+    // pthread_exit((void *) 0);
 }
 
 int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len) {
@@ -326,7 +320,7 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
 
             struct tty_process *process;
             if(!(process = process_getby_id(iid))) {
-                verbose("[+$ callback: tty: invalid id, closing connection\n");
+                verbose("[+] callback: tty: invalid id, closing connection\n");
                 return 1;
             }
 
@@ -351,13 +345,10 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
             client->state = STATE_INIT;
             client->pty_len = 0;
 
-            pthread_mutex_init(&client->mutex, NULL);
-            pthread_cond_init(&client->cond, NULL);
             lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi),
                                    client->hostname, sizeof(client->hostname),
                                    client->address, sizeof(client->address));
 
-            pthread_mutex_lock(&server->mutex);
             LIST_INSERT_HEAD(&server->clients, client, list);
             server->client_count++;
             lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI);
@@ -370,8 +361,6 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
             memcpy(client->pty_buffer + LWS_PRE + 1, logs->buffer, logs->length);
             client->pty_len = logs->length;
             client->state = STATE_READY;
-
-            pthread_mutex_unlock(&server->mutex);
 
             // sending effective data
             lws_callback_on_writable(client->wsi);
@@ -397,10 +386,10 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
                 return 0;
             }
 
-            if (client->state != STATE_READY)
+            if (client->state != STATE_READY) {
+                printf("not ready\n");
                 break;
-
-            pthread_mutex_lock(&client->mutex);
+            }
 
             // read error or client exited, close connection
             if (client->pty_len <= 0) {
