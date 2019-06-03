@@ -31,8 +31,10 @@ Please check the python client (for now). It's quite straightforward.
 ## Build on Linux
 
 ### Dependencies for Debian based
+> Package libwebsockets-dev version isn't working with this project, we recommand using libwebsocket v2.4.2
+
 ```bash
-apt-get install cmake g++ pkg-config git libwebsockets-dev libjson-c-dev libssl-dev
+apt-get install cmake g++ pkg-config git libjson-c-dev libssl-dev vim-runtime libz-dev
 ```
 
 You may also need to compile/install libwebsockets from source if the `libwebsockets-dev` package is outdated
@@ -42,7 +44,15 @@ You may also need to compile/install libwebsockets from source if the `libwebsoc
 emerge dev-util/cmake dev-vcs/git net-libs/libwebsockets dev-libs/json-c dev-libs/openssl
 ```
 
-### Build instruction
+### Libwebsocket Build instruction (needed for Ubuntu)
+```
+git clone -b v2.4.2 https://github.com/warmcat/libwebsockets
+cd libwebsockets && mkdir build && cd build
+cmake .. -DLWS_UNIX_SOCK=ON -DLWS_WITHOUT_TESTAPPS=ON -DLWS_WITH_STATIC=OFF
+make -j 4 && make install
+```
+
+### Core X Build instruction
 ```
 git clone https://github.com/threefoldtech/corex
 cd corex && mkdir build && cd build
