@@ -288,10 +288,18 @@ void lmount(char *type, char *destination, char *opts) {
         warnpf("mount", destination);
 }
 
+void lumount(char *path) {
+    if(umount(path) < 0)
+        warnpf("umount", path);
+}
+
 int isolate(char *root) {
     verbose("[+] changing root filesystem\n");
     if(chroot(root) < 0)
         diep("chroot");
+
+    // discarding current directory
+    chdir("/");
 
     printf("[+] populating pseudo filesystems\n");
 
@@ -315,6 +323,17 @@ int isolate(char *root) {
     privdrop();
 
     return 0;
+}
+
+// FIXME: cannot be executed since privileges was dropped
+void isolation_cleanup() {
+    lumount("/dev/pts");
+    lumount("/dev/shm");
+    lumount("/dev/mqueue");
+    lumount("/dev");
+    lumount("/proc");
+    lumount("/sys/fs/cgroup");
+    lumount("/sys");
 }
 
 //
@@ -903,10 +922,15 @@ int main(int argc, char **argv) {
         process_watch();
     }
 
+    printf("[+] exiting\n");
+
     lws_context_destroy(context);
 
     // cleanup
     tty_server_free(server);
+
+    if(chrooting)
+        isolation_cleanup();
 
     return 0;
 }
