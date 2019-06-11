@@ -10,6 +10,8 @@
 #include <sys/mount.h>
 #include <sys/wait.h>
 #include <pty.h>
+#include <sys/capability.h>
+#include <sys/prctl.h>
 
 #include <libwebsockets.h>
 #include <json.h>
@@ -238,6 +240,37 @@ buffer_t *circular_get(circbuf_t *circular, size_t length) {
 //
 // namespace isolation
 //
+void privdrop() {
+    struct __user_cap_header_struct hdr;
+    struct __user_cap_data_struct data;
+
+    hdr.pid = getpid();
+    hdr.version = _LINUX_CAPABILITY_VERSION;
+
+    if(capget(&hdr, &data) < 0)
+        diep("capget");
+
+    data.effective &= data.effective ^ (1 << CAP_SYS_CHROOT);
+    data.effective &= data.effective ^ (1 << CAP_SYS_ADMIN);
+    data.permitted &= data.permitted ^ (1 << CAP_SYS_CHROOT);
+    data.permitted &= data.permitted ^ (1 << CAP_SYS_ADMIN);
+
+    if(capset(&hdr, &data))
+        diep("capset failed");
+
+    if(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0)
+        diep("prctl");
+
+    // checking if privileged was dropped
+    if(chroot("/bin") >= 0) {
+        fprintf(stderr, "[-] -- WARNING --\n");
+        fprintf(stderr, "[-] chroot is still available, this is a security issue\n");
+        fprintf(stderr, "[-] capabilities drop seems not applied correctly\n");
+        fprintf(stderr, "[-] -- WARNING --\n");
+    }
+}
+
+
 void lmount(char *type, char *destination, char *opts) {
     if(mkdir(destination, 0755) < 0) {
         // ignore already existing error
@@ -277,6 +310,9 @@ int isolate(char *root) {
     // /sys
     lmount("sysfs", "/sys", "");
     lmount("cgroup", "/sys/fs/cgroup", "");
+
+    // drop privileges
+    privdrop();
 
     return 0;
 }
