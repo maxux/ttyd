@@ -34,14 +34,14 @@ Please check the python client (for now). It's quite straightforward.
 > Package libwebsockets-dev version isn't working with this project, we recommand using libwebsocket v2.4.2
 
 ```bash
-apt-get install cmake g++ pkg-config git libjson-c-dev libssl-dev vim-runtime libz-dev
+apt-get install cmake g++ pkg-config git libjson-c-dev libssl-dev vim-runtime libz-dev libcap-dev
 ```
 
 You may also need to compile/install libwebsockets from source if the `libwebsockets-dev` package is outdated
 
 ### Dependencies for Gentoo based
 ```bash
-emerge dev-util/cmake dev-vcs/git net-libs/libwebsockets dev-libs/json-c dev-libs/openssl
+emerge dev-util/cmake dev-vcs/git net-libs/libwebsockets dev-libs/json-c dev-libs/openssl sys-libs/libcap
 ```
 
 ### Libwebsocket Build instruction (needed for Ubuntu)
