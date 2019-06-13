@@ -33,6 +33,10 @@ class TFMuxExample:
         r = requests.get(self.endpoint("/process/stop"), params={"id": id})
         return r.json()
 
+    def process_kill(self, id, signal=9):
+        r = requests.get(self.endpoint("/process/kill"), params={"id": id, "signal": signal})
+        return r.json()
+
 
 if __name__ == '__main__':
     tfmux = TFMuxExample()
