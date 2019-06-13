@@ -363,18 +363,22 @@ char *tty_server_process_state(struct tty_process *process) {
     return state;
 }
 
-struct tty_process *tty_server_process_stop(struct tty_process *process) {
+struct tty_process *tty_server_process_kill(struct tty_process *process, int signal) {
     if(process->running == false)
         return NULL;
 
-    verbose("[+] killing process: %d\n", process->pid);
+    verbose("[+] killing process: %d, signal: %d\n", process->pid, signal);
 
-    kill(process->pid, SIGTERM);
+    kill(process->pid, signal);
 
     process->running = false;
     process->state = STOPPING;
 
     return process;
+}
+
+struct tty_process *tty_server_process_stop(struct tty_process *process) {
+    return tty_server_process_kill(process, SIGTERM);
 }
 
 struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, char **argv) {
@@ -596,6 +600,9 @@ int process_monitor(struct tty_process *process) {
     if(!process->running) {
         // if state is still running, refreshing state
         if(process->state == RUNNING)
+            return process_monitor_stopped(process);
+
+        if(process->state == STOPPING)
             return process_monitor_stopped(process);
 
         // nothing to do

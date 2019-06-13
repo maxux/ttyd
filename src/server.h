@@ -123,6 +123,7 @@ extern int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void
 extern int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len);
 
 char *tty_server_process_state(struct tty_process *process);
+struct tty_process *tty_server_process_kill(struct tty_process *process, int signal);
 struct tty_process *tty_server_process_stop(struct tty_process *process);
 struct tty_process *tty_server_process_start(struct tty_server *ts, int argc, char **argv);
 void process_remove(struct tty_process *process);

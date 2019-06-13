@@ -295,6 +295,41 @@ static int routing_get_api_process_stop(struct callback_response *r) {
     return http_die_response_json_ok(r);
 }
 
+static int routing_get_api_process_kill(struct callback_response *r) {
+    const char *ppid;
+    char pid[32];
+    const char *psig;
+    char sig[16];
+
+    if(!(ppid = lws_get_urlarg_by_name(r->wsi, "id=", pid, sizeof(pid))))
+        return http_die_response_json_error(r, "missing id");
+
+    if(!(psig = lws_get_urlarg_by_name(r->wsi, "signal=", sig, sizeof(sig)))) {
+        // SIGKILL by default
+        strcpy(sig, "9");
+        psig = sig;
+    }
+
+    size_t iid = strtoul(ppid, NULL, 10);
+    verbose("[+] api: requesting killing process: %lu\n", iid);
+
+    int isig = strtol(psig, NULL, 10);
+    verbose("[+] api: requesting killing with signal: %d\n", isig);
+
+    // looking for and killing processes
+    struct tty_process *process;
+    if(!(process = process_getby_id(iid)))
+        return http_die_response_json_error(r, "invalid id");
+
+    if(!process->running)
+        return http_die_response_json_error(r, "process already stopped");
+
+    if(!(tty_server_process_kill(process, isig)))
+        return http_die_response_json_error(r, "internal error while killing the process");
+
+    return http_die_response_json_ok(r);
+}
+
 static int routing_get_api_process_logs(struct callback_response *r) {
     const char *ppid;
     char pid[32];
@@ -411,6 +446,9 @@ routing_get:
 
             if(strcmp(pss->path, "/api/process/stop") == 0)
                 return routing_get_api_process_stop(&r);
+
+            if(strcmp(pss->path, "/api/process/kill") == 0)
+                return routing_get_api_process_kill(&r);
 
             if(strcmp(pss->path, "/api/process/logs") == 0)
                 return routing_get_api_process_logs(&r);
