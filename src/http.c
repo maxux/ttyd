@@ -7,6 +7,7 @@
 
 #include "server.h"
 #include "html.h"
+#include "homepage.h"
 #include "utils.h"
 
 struct callback_response {
@@ -145,8 +146,16 @@ static inline int http_method_is_post(struct lws *wsi) {
 // routing
 //
 static int routing_get_root(struct callback_response *r) {
-    lws_return_http_status(r->wsi, HTTP_STATUS_NOT_FOUND, NULL);
+    #if 0
+    int n = lws_serve_http_file(r->wsi, "../html/homepage/index.html", "text/html", NULL, 0);
+
+    if (n < 0 || (n > 0 && lws_http_transaction_completed(r->wsi)))
+        return 1;
+
     return 0;
+    #endif
+
+    return http_response(r, "text/html", ___html_homepage_index_html_len, ___html_homepage_index_html);
 }
 
 static int routing_get_id(struct callback_response *r, char *id) {
