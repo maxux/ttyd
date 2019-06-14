@@ -3,7 +3,6 @@
 <head>
     <meta charset="utf-8" />
     <title>Core X Processes List</title>
-    <link rel="stylesheet" href="style.css" media="all" type="text/css" />
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" crossorigin="anonymous">
 </head>
@@ -28,6 +27,13 @@
                 </tr>
             </tbody>
         </table>
+
+        <div class="text-center" id="found"></div>
+        <div class="text-center">
+            <small>
+                <a href="#" onclick="loadinfo(); return false;">Refresh</a>
+            </small>
+        </div>
     </div>
 
     <script type="text/javascript">
@@ -85,10 +91,17 @@
 
             $('#processes tbody').append(tr);
         }
+
+        if(data['processes'] != undefined)
+            $("#found").html("Tasks: " + data['processes'].length);
+    }
+
+    function loadinfo() {
+        $.get("/api/processes", process_list);
     }
 
     $(document).ready(function() {
-        $.get("/api/processes", process_list);
+        loadinfo();
     });
     </script>
 </body>
