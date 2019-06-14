@@ -199,9 +199,14 @@ static int routing_get_api_processes(struct callback_response *r) {
         json_object_object_add(process, "state", json_object_new_string(tty_server_process_state(proc)));
         json_object_object_add(process, "id", json_object_new_int64(proc->id));
 
-        if(WIFEXITED(proc->wstatus))
-            if(WEXITSTATUS(proc->wstatus))
-                json_object_object_add(process, "status", json_object_new_int64(WEXITSTATUS(proc->wstatus)));
+        if(WIFEXITED(proc->wstatus)) {
+            json_object_object_add(process, "status", json_object_new_int64(WEXITSTATUS(proc->wstatus)));
+        }
+
+        if(WIFSIGNALED(proc->wstatus)) {
+            json_object_object_add(process, "signal", json_object_new_int64(WTERMSIG(proc->wstatus)));
+            json_object_object_add(process, "status", json_object_new_int64(WEXITSTATUS(proc->wstatus)));
+        }
 
         if(*proc->error)
             json_object_object_add(process, "error", json_object_new_string(*proc->error));
@@ -427,7 +432,6 @@ routing_get:
                 default:
                     return 1;
             }
-
 
             if(strcmp(pss->path, "/") == 0)
                 return routing_get_root(&r);
