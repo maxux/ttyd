@@ -78,13 +78,26 @@
         $('#processes tbody').empty();
         console.log(data);
 
+        if(data['processes'] == undefined) {
+            $("#found").html("Could not load process list (try refresh)");
+            return;
+        }
+
         for(var index in data['processes']) {
             var process = data['processes'][index];
 
             var tr = $('<tr>');
 
             tr.append($('<td>').html($('<code>').html(process['pid'])));
-            tr.append($('<td>').append($('<a>', {'href': '/attach/' + process['id']}).html(process['id'])));
+
+            var link = $('<a>', {
+                'href': '/attach/' + process['id'],
+                'target': '_blank',
+
+            }).html(process['id'])
+
+            tr.append($('<td>').append(link));
+
             tr.append($('<td>').html($('<code>').html(process['command'])));
             tr.append(procinfo(process['state']));
             tr.append($('<td>', {'style': 'font-weight: bold;'}).html(siginfo(process)));
@@ -92,8 +105,7 @@
             $('#processes tbody').append(tr);
         }
 
-        if(data['processes'] != undefined)
-            $("#found").html("Tasks: " + data['processes'].length);
+        $("#found").html("Tasks: " + data['processes'].length);
     }
 
     function loadinfo() {
