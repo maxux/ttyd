@@ -239,11 +239,13 @@ static int routing_get_api_process_start(struct callback_response *r) {
     char cmdline[512];
     char *binary = NULL;
     char **argv = NULL;
-    int argc = 0;
+    int argc = 0, iterate = 0;
 
-    while(lws_hdr_copy_fragment(r->wsi, cmdline, sizeof(cmdline), WSI_TOKEN_HTTP_URI_ARGS, argc) > 0) {
+    while(lws_hdr_copy_fragment(r->wsi, cmdline, sizeof(cmdline), WSI_TOKEN_HTTP_URI_ARGS, iterate) > 0) {
         if(strncmp(cmdline, "arg[]=", 6) == 0)
             argc += 1;
+
+        iterate += 1;
     }
 
     if(argc == 0) {
