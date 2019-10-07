@@ -682,11 +682,12 @@ int main(int argc, char **argv) {
     info.ssl_private_key_filepath = NULL;
     info.gid = -1;
     info.uid = -1;
+    info.ka_time = 0;
     info.max_http_header_pool = 16;
     info.options = LWS_SERVER_OPTION_VALIDATE_UTF8 | LWS_SERVER_OPTION_DISABLE_IPV6;
     info.extensions = extensions;
 
-    int debug_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
+    int debug_level = LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_DEBUG | LLL_PARSER | LLL_HEADER;
     char *chrooting = NULL;
     char iface[128] = "";
     bool ssl = false;
