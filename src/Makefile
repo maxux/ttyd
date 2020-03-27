@@ -2,7 +2,7 @@ EXEC = corex
 SRC = $(wildcard *.c)
 OBJ = $(SRC:.c=.o)
 
-CFLAGS += -g -std=gnu99 -O2 -W -Wall -Wextra -I/usr/include/json-c -no-pie -static
+CFLAGS += -g -std=gnu99 -O2 -W -Wall -Wextra -no-pie -static
 LDFLAGS += -static -no-pie -pthread -ljson-c -lz -lwebsockets -lcap -lutil -lssl -lcrypto -lm 
 
 all: html $(EXEC)
