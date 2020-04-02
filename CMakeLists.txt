@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 
-project(ttyd)
-set(PROJECT_VERSION "1.4.2")
+project(corex)
+set(PROJECT_VERSION "2.0.0")
 
 find_package(Git)
 if(GIT_FOUND)
@@ -67,7 +67,8 @@ add_custom_command(OUTPUT html.h
 list(APPEND SOURCE_FILES html.h)
 
 set(INCLUDE_DIRS ${OPENSSL_INCLUDE_DIR} ${LIBWEBSOCKETS_INCLUDE_DIR} ${JSON-C_INCLUDE_DIR})
-set(LINK_LIBS pthread ${OPENSSL_LIBRARIES} ${LIBWEBSOCKETS_LIBRARIES} ${JSON-C_LIBRARY})
+set(LINK_LIBS ${OPENSSL_LIBRARIES} ${LIBWEBSOCKETS_LIBRARIES}
+    ${JSON-C_LIBRARY} -lcap)
 
 if(NOT APPLE)
     list(APPEND LINK_LIBS util)

@@ -172,7 +172,7 @@ function handleReceive(zsession) {
 
 var terminalContainer = document.getElementById('terminal-container'),
     httpsEnabled = window.location.protocol === 'https:',
-    url = (httpsEnabled ? 'wss://' : 'ws://') + window.location.host + window.location.pathname
+    url = (httpsEnabled ? 'wss://' : 'ws://') + window.location.host // + window.location.pathname
         + (window.location.pathname.endsWith('/') ? '' : '/') + 'ws',
     textDecoder = new TextDecoder(),
     textEncoder = new TextEncoder(),
@@ -181,7 +181,10 @@ var terminalContainer = document.getElementById('terminal-container'),
     reconnectTimer, term, title, wsError;
 
 var openWs = function() {
-    var ws = new WebSocket(url, ['tty']);
+    var path = window.location.pathname;
+    var id = path.split(/[\\/]/).pop();
+
+    var ws = new WebSocket(url + '/' + id, ['tty']);
     var sendMessage = function (message) {
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(textEncoder.encode(message));
@@ -315,6 +318,7 @@ var openWs = function() {
         var rawData = new Uint8Array(event.data),
             cmd = String.fromCharCode(rawData[0]),
             data = rawData.slice(1).buffer;
+
         switch(cmd) {
             case '0':
                 try {

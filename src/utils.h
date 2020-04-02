@@ -25,10 +25,6 @@ get_sig_name(int sig, char *buf, size_t len);
 int
 get_sig(const char *sig_name);
 
-// Open uri with the default application of system
-int
-open_uri(char *uri);
-
 // Encode text to base64, the caller should free the returned string
 char *
 base64_encode(const unsigned char *buffer, size_t length);

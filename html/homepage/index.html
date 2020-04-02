@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Core X Processes List</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" crossorigin="anonymous">
+</head>
+
+<body>
+    <div class="container" style="margin-top: 3em;">
+        <h1>Core X Processes List</h1>
+
+        <table id="processes" class="table table-striped" style="margin-top: 2em;">
+            <thead class="thead-dark">
+                <tr>
+                    <th>PID</th>
+                    <th>Job ID</th>
+                    <th>Command Line</th>
+                    <th>Status</th>
+                    <th>Information</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="text-center" id="found"></div>
+        <div class="text-center">
+            <small>
+                <a href="#" onclick="loadinfo(); return false;">Refresh</a>
+            </small>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+    var siglist = [
+        '',
+        'SIGHUP',  'SIGINT',    'SIGQUIT', 'SIGILL',
+        'SIGTRAP', 'SIGABRT',   'SIGBUS',  'SIGFPE',
+        'SIGKILL', 'SIGUSR1',   'SIGSEGV', 'SIGUSR2',
+        'SIGPIPE', 'SIGALRM',   'SIGTERM', 'SIGSTKFLT',
+        'SIGCHLD', 'SIGCONT',   'SIGSTOP', 'SIGTSTP',
+        'SIGTTIN', 'SIGTTOU',   'SIGURG',  'SIGXCPU',
+        'SIGXFSZ', 'SIGVTALRM', 'SIGPROF', 'SIGWINCH',
+        'SIGIO',   'SIGPWR',    'SIGSYS'
+    ];
+
+    var statusinfo = {
+        'stopped': {'name': 'Stopped', 'class': 'text-danger'},
+        'stopping': {'name': 'Stopping', 'class': 'text-warning'},
+        'running': {'name': 'Running', 'class': 'text-success'}
+    };
+
+    function siginfo(process) {
+        if(process['signal'] != undefined) {
+            if(siglist[process['signal']] != undefined)
+                return siglist[process['signal']];
+
+            return "-" + process['signal'];
+        }
+
+        if(process['state'] == 'running')
+            return "";
+
+        return "Exit: " + process['status'];
+    }
+
+    function procinfo(s) {
+        return $('<td>', {'class': statusinfo[s]['class']})
+            .html(statusinfo[s]['name']);
+    }
+
+    function process_list(data) {
+        $('#processes tbody').empty();
+        console.log(data);
+
+        if(data['processes'] == undefined) {
+            $("#found").html("Could not load process list (try refresh)");
+            return;
+        }
+
+        for(var index in data['processes']) {
+            var process = data['processes'][index];
+
+            var tr = $('<tr>');
+
+            tr.append($('<td>').html($('<code>').html(process['pid'])));
+
+            var link = $('<a>', {
+                'href': '/attach/' + process['id'],
+                'target': '_blank',
+
+            }).html(process['id'])
+
+            tr.append($('<td>').append(link));
+
+            tr.append($('<td>').html($('<code>').html(process['command'])));
+            tr.append(procinfo(process['state']));
+            tr.append($('<td>', {'style': 'font-weight: bold;'}).html(siginfo(process)));
+
+            $('#processes tbody').append(tr);
+        }
+
+        $("#found").html("Tasks: " + data['processes'].length);
+    }
+
+    function loadinfo() {
+        $.get("/api/processes", process_list);
+    }
+
+    $(document).ready(function() {
+        loadinfo();
+    });
+    </script>
+</body>
+
+</html>
