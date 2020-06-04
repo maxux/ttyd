@@ -63,11 +63,13 @@ int check_auth(struct lws *wsi) {
     return -1;
 }
 
-static int http_response(struct callback_response *r, char *ctype, size_t length, char *buffer) {
+static int http_response(struct callback_response *r, char *_ctype, size_t length, char *buffer) {
+    const unsigned char *ctype = (const unsigned char *) _ctype;
+
     if(lws_add_http_header_status(r->wsi, HTTP_STATUS_OK, &r->p, r->end))
         return 1;
 
-    if(lws_add_http_header_by_token(r->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, ctype, strlen(ctype), &r->p, r->end))
+    if(lws_add_http_header_by_token(r->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, ctype, strlen(_ctype), &r->p, r->end))
         return 1;
 
     if(lws_add_http_header_content_length(r->wsi, length, &r->p, r->end))
@@ -155,7 +157,7 @@ static int routing_get_root(struct callback_response *r) {
     return 0;
     #endif
 
-    return http_response(r, "text/html", ___html_homepage_index_html_len, ___html_homepage_index_html);
+    return http_response(r, "text/html", ___html_homepage_index_html_len, (char *) ___html_homepage_index_html);
 }
 
 static int routing_get_id(struct callback_response *r, char *id) {
@@ -178,11 +180,13 @@ static int routing_get_id(struct callback_response *r, char *id) {
     }
 
     if(server->index == NULL)
-        return http_response(r, "text/html", index_html_len, index_html);
+        return http_response(r, "text/html", index_html_len, (char *) index_html);
 
     int n = lws_serve_http_file(r->wsi, server->index, "text/html", NULL, 0);
     if(n < 0 || (n > 0 && lws_http_transaction_completed(r->wsi)))
         return 1;
+
+    return 0;
 }
 
 static int routing_get_auth_token(struct callback_response *r) {
@@ -237,9 +241,9 @@ static int routing_get_api_processes(struct callback_response *r) {
 
 static int routing_get_api_process_start(struct callback_response *r) {
     char cmdline[512];
-    char *binary = NULL;
     char **argv = NULL;
     int argc = 0, iterate = 0;
+    // char *binary = NULL;
 
     while(lws_hdr_copy_fragment(r->wsi, cmdline, sizeof(cmdline), WSI_TOKEN_HTTP_URI_ARGS, iterate) > 0) {
         if(strncmp(cmdline, "arg[]=", 6) == 0)
@@ -364,7 +368,7 @@ static int routing_get_api_process_logs(struct callback_response *r) {
     // fetching logs.
     buffer_t *logs = circular_get(process->logs, 0);
 
-    int value = http_response(r, "text/plain", logs->length, logs->buffer);
+    int value = http_response(r, "text/plain", logs->length, (char *) logs->buffer);
     buffer_free(logs);
 
     return value;
@@ -392,8 +396,9 @@ static int routing_get_api_process_clean(struct callback_response *r) {
 //
 int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len) {
     struct pss_http *pss = (struct pss_http *) user;
-    unsigned char buffer[4096 + LWS_PRE], *p, *end;
-    char buf[256], name[100], rip[50];
+    unsigned char buffer[4096 + LWS_PRE], *p = NULL, *end = NULL;
+    char name[100], rip[50];
+    // char buf[256];
 
     struct callback_response r = {
         .wsi = wsi,
@@ -480,17 +485,20 @@ routing_get:
             if (pss->len <= 0)
                 goto try_to_reuse;
 
-            if (pss ->ptr - pss->buffer == pss->len) {
-                if (pss->buffer != (char *) index_html) free(pss->buffer);
+            if (pss->ptr - pss->buffer == (unsigned) pss->len) {
+                if (pss->buffer != (char *) index_html)
+                    free(pss->buffer);
+
                 goto try_to_reuse;
             }
 
             int n = sizeof(buffer) - LWS_PRE;
-            if (pss->ptr - pss->buffer + n > pss->len)
+            if (pss->ptr - pss->buffer + n > (unsigned) pss->len)
                 n = (int) (pss->len - (pss->ptr - pss->buffer));
 
             memcpy(buffer + LWS_PRE, pss->ptr, n);
             pss->ptr += n;
+
             if (lws_write_http(wsi, buffer + LWS_PRE, (size_t) n) < n) {
                 if (pss->buffer != (char *) index_html) free(pss->buffer);
                 return -1;

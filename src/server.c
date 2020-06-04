@@ -35,9 +35,9 @@ char *__process_states[] = {"created", "starting", "running", "stopping", "stopp
 
 // websocket protocols
 static const struct lws_protocols protocols[] = {
-        {"http-only", callback_http, sizeof(struct pss_http),   0},
-        {"tty",       callback_tty,  sizeof(struct tty_client), 0},
-        {NULL, NULL, 0, 0}
+        {"http-only", callback_http, sizeof(struct pss_http),   128, 0, NULL, 0},
+        {"tty",       callback_tty,  sizeof(struct tty_client), 128, 0, NULL, 0},
+        {NULL, NULL, 0, 0, 0, NULL, 0}
 };
 
 // websocket extensions
@@ -198,6 +198,8 @@ size_t circular_append(circbuf_t *circular, uint8_t *data, size_t length) {
 
     memcpy(circular->writer, data + bufremain, length - bufremain);
     circular->writer += length - bufremain;
+
+    return length;
 }
 
 buffer_t *circular_get(circbuf_t *circular, size_t length) {
@@ -496,9 +498,10 @@ void tty_server_free(struct tty_server *ts) {
 
     // free(ts->command);
     free(ts->prefs_json);
-    int i = 0;
 
     /*
+    int i = 0;
+
     do {
         free(ts->argv[i++]);
 
@@ -629,7 +632,7 @@ int process_monitor(struct tty_process *process) {
         }
 
         // keeping logs into our circular buffer
-        circular_append(process->logs, pty_buffer, pty_len);
+        circular_append(process->logs, (uint8_t *) pty_buffer, pty_len);
 
         struct tty_client *client;
         LIST_FOREACH(client, &server->clients, list) {
