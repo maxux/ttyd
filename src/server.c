@@ -566,7 +566,7 @@ static int process_init(struct tty_process *process) {
             warnp("execvp");
         }
 
-        return 1;
+        exit(1);
     }
 
     verbose("[+] subprocess: started process, pid: %d, pty: %d\n", pid, pty);
@@ -687,7 +687,7 @@ int main(int argc, char **argv) {
     info.options = LWS_SERVER_OPTION_VALIDATE_UTF8 | LWS_SERVER_OPTION_DISABLE_IPV6;
     info.extensions = extensions;
 
-    int debug_level = LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_DEBUG | LLL_PARSER | LLL_HEADER;
+    int debug_level = LLL_ERR | LLL_WARN | LLL_NOTICE; // | LLL_DEBUG | LLL_PARSER | LLL_HEADER;
     char *chrooting = NULL;
     char iface[128] = "";
     bool ssl = false;
