@@ -52,7 +52,8 @@
     var statusinfo = {
         'stopped': {'name': 'Stopped', 'class': 'text-danger'},
         'stopping': {'name': 'Stopping', 'class': 'text-warning'},
-        'running': {'name': 'Running', 'class': 'text-success'}
+        'running': {'name': 'Running', 'class': 'text-success'},
+        'crashed': {'name': 'Crashed', 'class': 'text-danger'}
     };
 
     function siginfo(process) {
@@ -65,6 +66,9 @@
 
         if(process['state'] == 'running')
             return "";
+
+        if(process['state'] == 'crashed')
+            return process['error'];
 
         return "Exit: " + process['status'];
     }
