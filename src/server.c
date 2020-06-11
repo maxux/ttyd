@@ -35,8 +35,8 @@ char *__process_states[] = {"created", "starting", "running", "stopping", "stopp
 
 // websocket protocols
 static const struct lws_protocols protocols[] = {
-        {"http-only", callback_http, sizeof(struct pss_http),   128, 0, NULL, 0},
-        {"tty",       callback_tty,  sizeof(struct tty_client), 128, 0, NULL, 0},
+        {"http-only", callback_http, sizeof(struct pss_http),   8192, 0, NULL, 0},
+        {"tty",       callback_tty,  sizeof(struct tty_client), 8192, 0, NULL, 0},
         {NULL, NULL, 0, 0, 0, NULL, 0}
 };
 
@@ -929,8 +929,9 @@ int main(int argc, char **argv) {
 
     // libwebsockets main loop
     while(!force_exit) {
-        lws_service(context, 10);
+        lws_service(context, -1);
         process_watch();
+        usleep(5000);
     }
 
     printf("[+] exiting\n");
