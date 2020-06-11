@@ -9,6 +9,7 @@ all: html $(EXEC)
 
 html:
 	xxd -i index.html html.h
+	xxd -i ../html/homepage/index.html homepage.h
 
 $(EXEC): $(OBJ)
 	$(CC) -o $@ $^ $(LDFLAGS)

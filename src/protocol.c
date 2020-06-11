@@ -99,8 +99,9 @@ bool check_host_origin(struct lws *wsi) {
     }
 
     int host_length = lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
-    if (host_length != strlen(buf))
+    if ((size_t) host_length != strlen(buf))
         return false;
+
     char host_buf[host_length + 1];
     memset(host_buf, 0, sizeof(host_buf));
     len = lws_hdr_copy(wsi, host_buf, sizeof(host_buf), WSI_TOKEN_HOST);
@@ -271,7 +272,7 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
             client->pty_buffer[LWS_PRE] = OUTPUT;
             n = (size_t) (client->pty_len + 1);
 
-            if(lws_write(wsi, (unsigned char *) client->pty_buffer + LWS_PRE, n, LWS_WRITE_BINARY) < n)
+            if(lws_write(wsi, (unsigned char *) client->pty_buffer + LWS_PRE, n, LWS_WRITE_BINARY) < (int) n)
                 fprintf(stderr, "[-] callback: tty: writable: could not write data to ws\n");
 
             client->state = STATE_DONE;
