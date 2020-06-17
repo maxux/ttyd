@@ -929,7 +929,7 @@ int main(int argc, char **argv) {
 
     // libwebsockets main loop
     while(!force_exit) {
-        lws_service(context, -1);
+        lws_service(context, 0);
         process_watch();
         usleep(5000);
     }
