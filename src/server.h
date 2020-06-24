@@ -91,6 +91,8 @@ struct tty_client {
     ssize_t pty_len;
 
     LIST_ENTRY(tty_client) list;
+
+    lws_sorted_usec_list_t sul_stagger;
 };
 
 struct pss_http {

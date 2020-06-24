@@ -931,7 +931,7 @@ int main(int argc, char **argv) {
     while(!force_exit) {
         lws_service(context, 0);
         process_watch();
-        usleep(5000);
+        usleep(1000);
     }
 
     printf("[+] exiting\n");
